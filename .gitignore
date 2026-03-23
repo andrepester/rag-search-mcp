@@ -1,0 +1,22 @@
+opencode.json
+opencode.json.*
+.env
+index/*
+!index/.gitkeep
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# OS clutter
+.DS_Store
