@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import tempfile
+from pathlib import Path
+from typing import Any, cast
 
 import chromadb
 import httpx
@@ -23,6 +24,10 @@ SUPPORTED_SUFFIXES = {".md", ".txt", ".pdf"}
 INDEX_METADATA_FILENAME = ".rag_index_meta.json"
 
 
+class IngestError(RuntimeError):
+    """Raised when ingestion or embedding responses are invalid."""
+
+
 def load_text(path: Path) -> str:
     if path.suffix.lower() == ".pdf":
         reader = PdfReader(str(path))
@@ -37,6 +42,11 @@ def clean_text(text: str) -> str:
 
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than zero")
+    if overlap < 0:
+        raise ValueError("overlap must be zero or positive")
+
     text = clean_text(text)
     if not text:
         return []
@@ -69,14 +79,45 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    with httpx.Client(timeout=120.0) as client:
-        response = client.post(
-            f"{OLLAMA_HOST}/api/embed",
-            json={"model": EMBED_MODEL, "input": texts},
-        )
-        response.raise_for_status()
-        data = response.json()
-    return data["embeddings"]
+    try:
+        with httpx.Client(timeout=120.0) as client:
+            response = client.post(
+                f"{OLLAMA_HOST}/api/embed",
+                json={"model": EMBED_MODEL, "input": texts},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.TimeoutException as exc:
+        raise IngestError("Timed out while requesting Ollama embeddings.") from exc
+    except httpx.HTTPStatusError as exc:
+        raise IngestError(
+            f"Ollama returned HTTP {exc.response.status_code} for embeddings."
+        ) from exc
+    except httpx.RequestError as exc:
+        raise IngestError(f"Failed to reach Ollama at '{OLLAMA_HOST}'.") from exc
+    except ValueError as exc:
+        raise IngestError("Ollama returned invalid JSON for embeddings.") from exc
+
+    if not isinstance(data, dict):
+        raise IngestError("Ollama returned an invalid embeddings payload.")
+
+    embeddings = data.get("embeddings")
+    if not isinstance(embeddings, list):
+        raise IngestError("Ollama response is missing 'embeddings'.")
+
+    parsed: list[list[float]] = []
+    for embedding in embeddings:
+        if not isinstance(embedding, list) or not embedding:
+            raise IngestError("Ollama response contains an invalid embedding vector.")
+
+        values: list[float] = []
+        for value in embedding:
+            if not isinstance(value, (int, float)):
+                raise IngestError("Embedding vector contains non-numeric values.")
+            values.append(float(value))
+        parsed.append(values)
+
+    return parsed
 
 
 def iter_documents() -> list[Path]:
@@ -127,8 +168,8 @@ def build_index(documents: list[tuple[str, str]]) -> int:
             collection.add(
                 ids=ids[start:end],
                 documents=batch_docs,
-                metadatas=metadatas[start:end],
-                embeddings=embeddings,
+                metadatas=cast(Any, metadatas[start:end]),
+                embeddings=cast(Any, embeddings),
             )
 
         metadata_path = temp_dir / INDEX_METADATA_FILENAME
