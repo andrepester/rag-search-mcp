@@ -1,0 +1,44 @@
+name: integration-ollama
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "53 2 * * 6"
+
+permissions:
+  contents: read
+
+jobs:
+  ollama-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Ollama container
+        run: docker run -d --name ollama -p 11434:11434 ollama/ollama:latest
+
+      - name: Wait for Ollama API
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:11434/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Ollama API did not become ready in time" >&2
+          exit 1
+
+      - name: Pull embedding model
+        run: docker exec ollama ollama pull nomic-embed-text
+
+      - name: Install project dependencies (skip local Ollama setup)
+        run: make install-no-ollama INSTALL_ARGS="--yes"
+
+      - name: Reindex
+        run: make reindex
+
+      - name: Run doctor
+        run: make doctor
