@@ -97,7 +97,7 @@ Exposes three tools to OpenCode:
 ### OpenCode Integration
 
 The installer writes or updates the `local_rag` MCP block inside
-`opencode.json` using the current repo path and resolved environment settings.
+`opencode.json` using repo-local command and environment settings.
 This file is machine-specific and should not be committed. OpenCode
 automatically picks up this project-local config when started in the repo
 directory. It merges with your global `~/.config/opencode/opencode.json`;

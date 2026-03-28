@@ -71,15 +71,53 @@ has_cmd() {
 # ── Environment/config helpers ────────────────────────────────────────
 load_env_file() {
   local env_file="${1:-$REPO_ROOT/.env}"
+  local line
+  local key
+  local value
 
   if [[ ! -f "$env_file" ]]; then
     return 0
   fi
 
-  set -a
-  # shellcheck disable=SC1090
-  source "$env_file"
-  set +a
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "${line//[[:space:]]/}" ]]; then
+      continue
+    fi
+
+    if [[ "$line" != *=* ]]; then
+      warn "Skipping invalid .env line: $line"
+      continue
+    fi
+
+    key="${line%%=*}"
+    value="${line#*=}"
+
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+
+    if [[ ! "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+      warn "Skipping invalid .env key: $key"
+      continue
+    fi
+
+    case "$key" in
+      RAG_DOCS_DIR|RAG_CHROMA_DIR|OLLAMA_HOST|EMBED_MODEL|COLLECTION_NAME|RAG_CHUNK_SIZE|RAG_CHUNK_OVERLAP)
+        ;;
+      *)
+        warn "Ignoring unsupported .env key: $key"
+        continue
+        ;;
+    esac
+
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" =~ ^\'.*\'$ ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+
+    export "$key=$value"
+  done < "$env_file"
 }
 
 resolve_repo_path() {

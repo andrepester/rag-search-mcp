@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import chromadb
@@ -9,21 +10,52 @@ import httpx
 from chromadb.errors import ChromaError, NotFoundError
 from mcp.server.fastmcp import FastMCP
 
-CHROMA_DIR = Path(os.environ.get("RAG_CHROMA_DIR", "index")).expanduser().resolve()
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
-EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
-COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "docs")
+from lib.embedding_payload import parse_query_embedding_payload
+
+DEFAULT_CHROMA_DIR = "index"
+DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+DEFAULT_EMBED_MODEL = "nomic-embed-text"
+DEFAULT_COLLECTION_NAME = "docs"
+DEFAULT_MAX_TOP_K = 50
 INDEX_METADATA_FILENAME = ".rag_index_meta.json"
 
 mcp = FastMCP("local_rag", json_response=True)
+
+_collection_cache_key: tuple[str, str] | None = None
+_collection_cache: object | None = None
+_source_cache: dict[tuple[str, str, float | None], list[str]] = {}
+
+
+@dataclass(frozen=True)
+class ServerSettings:
+    chroma_dir: Path
+    ollama_host: str
+    embed_model: str
+    collection_name: str
+    max_top_k: int
+
+
+def get_settings() -> ServerSettings:
+    return ServerSettings(
+        chroma_dir=Path(os.environ.get("RAG_CHROMA_DIR", DEFAULT_CHROMA_DIR))
+        .expanduser()
+        .resolve(),
+        ollama_host=os.environ.get("OLLAMA_HOST", DEFAULT_OLLAMA_HOST).rstrip("/"),
+        embed_model=os.environ.get("EMBED_MODEL", DEFAULT_EMBED_MODEL),
+        collection_name=os.environ.get("COLLECTION_NAME", DEFAULT_COLLECTION_NAME),
+        max_top_k=max(
+            1,
+            int(os.environ.get("RAG_MAX_TOP_K", str(DEFAULT_MAX_TOP_K))),
+        ),
+    )
 
 
 class QueryEmbeddingError(RuntimeError):
     """Raised when query embeddings cannot be created or parsed."""
 
 
-def load_index_metadata() -> dict[str, object]:
-    metadata_path = CHROMA_DIR / INDEX_METADATA_FILENAME
+def load_index_metadata(settings: ServerSettings) -> dict[str, object]:
+    metadata_path = settings.chroma_dir / INDEX_METADATA_FILENAME
     if not metadata_path.exists():
         return {}
 
@@ -35,49 +67,46 @@ def load_index_metadata() -> dict[str, object]:
         return {}
 
 
-def get_index_embed_model() -> str:
-    metadata = load_index_metadata()
+def get_index_embed_model(settings: ServerSettings) -> str:
+    metadata = load_index_metadata(settings)
     model = metadata.get("embed_model")
     if isinstance(model, str) and model.strip():
         return model.strip()
-    return EMBED_MODEL
+    return settings.embed_model
 
 
 def get_collection():
-    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    global _collection_cache, _collection_cache_key
+
+    settings = get_settings()
+    cache_key = (str(settings.chroma_dir), settings.collection_name)
+    if _collection_cache_key == cache_key:
+        return _collection_cache
+
+    client = chromadb.PersistentClient(path=str(settings.chroma_dir))
     try:
-        return client.get_collection(name=COLLECTION_NAME)
+        collection = client.get_collection(name=settings.collection_name)
+        _collection_cache_key = cache_key
+        _collection_cache = collection
+        return collection
     except (NotFoundError, ChromaError, OSError, ValueError):
+        _collection_cache_key = cache_key
+        _collection_cache = None
         return None
 
 
 def parse_embedding_payload(payload: object) -> list[float]:
-    if not isinstance(payload, dict):
-        raise QueryEmbeddingError("Ollama returned an invalid embeddings payload.")
-
-    embeddings = payload.get("embeddings")
-    if not isinstance(embeddings, list) or not embeddings:
-        raise QueryEmbeddingError("Ollama response is missing 'embeddings'.")
-
-    first_embedding = embeddings[0]
-    if not isinstance(first_embedding, list) or not first_embedding:
-        raise QueryEmbeddingError(
-            "Ollama response contains an invalid embedding vector."
-        )
-
-    values: list[float] = []
-    for value in first_embedding:
-        if not isinstance(value, (int, float)):
-            raise QueryEmbeddingError("Embedding vector contains non-numeric values.")
-        values.append(float(value))
-    return values
+    try:
+        return parse_query_embedding_payload(payload)
+    except ValueError as exc:
+        raise QueryEmbeddingError(str(exc)) from exc
 
 
-def embed_query(text: str, embed_model: str) -> list[float]:
+def embed_query(text: str, embed_model: str, settings: ServerSettings) -> list[float]:
     try:
         with httpx.Client(timeout=120.0) as client:
             response = client.post(
-                f"{OLLAMA_HOST}/api/embed",
+                f"{settings.ollama_host}/api/embed",
                 json={"model": embed_model, "input": text},
             )
             response.raise_for_status()
@@ -92,7 +121,7 @@ def embed_query(text: str, embed_model: str) -> list[float]:
         ) from exc
     except httpx.RequestError as exc:
         raise QueryEmbeddingError(
-            f"Failed to reach Ollama at '{OLLAMA_HOST}'."
+            f"Failed to reach Ollama at '{settings.ollama_host}'."
         ) from exc
     except ValueError as exc:
         raise QueryEmbeddingError(
@@ -102,17 +131,44 @@ def embed_query(text: str, embed_model: str) -> list[float]:
     return parse_embedding_payload(data)
 
 
-def resolve_source_filter(collection, source_filter: str) -> list[str]:
-    if not source_filter:
-        return []
+def _get_source_paths(collection, settings: ServerSettings) -> list[str]:
+    metadata_path = settings.chroma_dir / INDEX_METADATA_FILENAME
+    metadata_mtime = metadata_path.stat().st_mtime if metadata_path.exists() else None
+    cache_key = (str(settings.chroma_dir), settings.collection_name, metadata_mtime)
+
+    cached_sources = _source_cache.get(cache_key)
+    if cached_sources is not None:
+        return cached_sources
 
     result = collection.get(include=["metadatas"])
-    filter_text = source_filter.lower()
-    return sorted(
+    sources = sorted(
         {
             str(meta["source_path"])
             for meta in result.get("metadatas", [])
-            if meta and filter_text in str(meta.get("source_path", "")).lower()
+            if meta and meta.get("source_path")
+        }
+    )
+
+    for key in list(_source_cache):
+        if key[0] == str(settings.chroma_dir) and key[1] == settings.collection_name:
+            _source_cache.pop(key, None)
+
+    _source_cache[cache_key] = sources
+    return sources
+
+
+def resolve_source_filter(
+    collection, source_filter: str, settings: ServerSettings
+) -> list[str]:
+    if not source_filter:
+        return []
+
+    filter_text = source_filter.lower()
+    return sorted(
+        {
+            source_path
+            for source_path in _get_source_paths(collection, settings)
+            if filter_text in source_path.lower()
         }
     )
 
@@ -123,14 +179,8 @@ def list_sources() -> dict[str, list[str]]:
     if collection is None:
         return {"sources": []}
 
-    result = collection.get(include=["metadatas"])
-    sources = sorted(
-        {
-            meta["source_path"]
-            for meta in result.get("metadatas", [])
-            if meta and meta.get("source_path")
-        }
-    )
+    settings = get_settings()
+    sources = _get_source_paths(collection, settings)
     return {"sources": sources}
 
 
@@ -158,6 +208,7 @@ def get_chunk(chunk_id: str) -> dict[str, object]:
 def search_docs(
     query: str, top_k: int = 5, source_filter: str = ""
 ) -> dict[str, object]:
+    settings = get_settings()
     collection = get_collection()
     if collection is None:
         response: dict[str, object] = {"query": query, "matches": []}
@@ -166,10 +217,10 @@ def search_docs(
             response["matched_sources"] = []
         return response
 
-    top_k = max(1, top_k)
+    top_k = max(1, min(top_k, settings.max_top_k))
 
-    configured_embed_model = EMBED_MODEL
-    index_embed_model = get_index_embed_model()
+    configured_embed_model = settings.embed_model
+    index_embed_model = get_index_embed_model(settings)
     query_embed_model = index_embed_model
 
     warnings: list[str] = []
@@ -182,7 +233,7 @@ def search_docs(
         )
 
     try:
-        query_embedding = embed_query(query, query_embed_model)
+        query_embedding = embed_query(query, query_embed_model, settings)
     except QueryEmbeddingError as exc:
         error_response: dict[str, object] = {
             "query": query,
@@ -214,7 +265,7 @@ def search_docs(
         "include": ["documents", "metadatas", "distances"],
     }
 
-    matched_sources = resolve_source_filter(collection, source_filter)
+    matched_sources = resolve_source_filter(collection, source_filter, settings)
     if source_filter:
         if not matched_sources:
             return {"query": query, "source_filter": source_filter, "matches": []}

@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,15 +14,46 @@ import chromadb
 import httpx
 from pypdf import PdfReader
 
-DOCS_DIR = Path(os.environ.get("RAG_DOCS_DIR", "docs")).expanduser().resolve()
-CHROMA_DIR = Path(os.environ.get("RAG_CHROMA_DIR", "index")).expanduser().resolve()
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
-EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
-COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "docs")
-CHUNK_SIZE = int(os.environ.get("RAG_CHUNK_SIZE", "1200"))
-CHUNK_OVERLAP = int(os.environ.get("RAG_CHUNK_OVERLAP", "200"))
+from lib.embedding_payload import parse_batch_embedding_payload
+
+DEFAULT_DOCS_DIR = "docs"
+DEFAULT_CHROMA_DIR = "index"
+DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+DEFAULT_EMBED_MODEL = "nomic-embed-text"
+DEFAULT_COLLECTION_NAME = "docs"
+DEFAULT_CHUNK_SIZE = 1200
+DEFAULT_CHUNK_OVERLAP = 200
 SUPPORTED_SUFFIXES = {".md", ".txt", ".pdf"}
 INDEX_METADATA_FILENAME = ".rag_index_meta.json"
+
+
+@dataclass(frozen=True)
+class IngestSettings:
+    docs_dir: Path
+    chroma_dir: Path
+    ollama_host: str
+    embed_model: str
+    collection_name: str
+    chunk_size: int
+    chunk_overlap: int
+
+
+def get_settings() -> IngestSettings:
+    return IngestSettings(
+        docs_dir=Path(os.environ.get("RAG_DOCS_DIR", DEFAULT_DOCS_DIR))
+        .expanduser()
+        .resolve(),
+        chroma_dir=Path(os.environ.get("RAG_CHROMA_DIR", DEFAULT_CHROMA_DIR))
+        .expanduser()
+        .resolve(),
+        ollama_host=os.environ.get("OLLAMA_HOST", DEFAULT_OLLAMA_HOST).rstrip("/"),
+        embed_model=os.environ.get("EMBED_MODEL", DEFAULT_EMBED_MODEL),
+        collection_name=os.environ.get("COLLECTION_NAME", DEFAULT_COLLECTION_NAME),
+        chunk_size=int(os.environ.get("RAG_CHUNK_SIZE", str(DEFAULT_CHUNK_SIZE))),
+        chunk_overlap=int(
+            os.environ.get("RAG_CHUNK_OVERLAP", str(DEFAULT_CHUNK_OVERLAP))
+        ),
+    )
 
 
 class IngestError(RuntimeError):
@@ -46,6 +78,8 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
         raise ValueError("chunk_size must be greater than zero")
     if overlap < 0:
         raise ValueError("overlap must be zero or positive")
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
 
     text = clean_text(text)
     if not text:
@@ -78,12 +112,12 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return [c.strip() for c in chunks if c.strip()]
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
+def embed_texts(texts: list[str], settings: IngestSettings) -> list[list[float]]:
     try:
         with httpx.Client(timeout=120.0) as client:
             response = client.post(
-                f"{OLLAMA_HOST}/api/embed",
-                json={"model": EMBED_MODEL, "input": texts},
+                f"{settings.ollama_host}/api/embed",
+                json={"model": settings.embed_model, "input": texts},
             )
             response.raise_for_status()
             data = response.json()
@@ -94,50 +128,41 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
             f"Ollama returned HTTP {exc.response.status_code} for embeddings."
         ) from exc
     except httpx.RequestError as exc:
-        raise IngestError(f"Failed to reach Ollama at '{OLLAMA_HOST}'.") from exc
+        raise IngestError(
+            f"Failed to reach Ollama at '{settings.ollama_host}'."
+        ) from exc
     except ValueError as exc:
         raise IngestError("Ollama returned invalid JSON for embeddings.") from exc
 
-    if not isinstance(data, dict):
-        raise IngestError("Ollama returned an invalid embeddings payload.")
-
-    embeddings = data.get("embeddings")
-    if not isinstance(embeddings, list):
-        raise IngestError("Ollama response is missing 'embeddings'.")
-
-    parsed: list[list[float]] = []
-    for embedding in embeddings:
-        if not isinstance(embedding, list) or not embedding:
-            raise IngestError("Ollama response contains an invalid embedding vector.")
-
-        values: list[float] = []
-        for value in embedding:
-            if not isinstance(value, (int, float)):
-                raise IngestError("Embedding vector contains non-numeric values.")
-            values.append(float(value))
-        parsed.append(values)
-
-    return parsed
+    try:
+        return parse_batch_embedding_payload(data, expected_count=len(texts))
+    except ValueError as exc:
+        raise IngestError(str(exc)) from exc
 
 
-def iter_documents() -> list[Path]:
+def iter_documents(settings: IngestSettings) -> list[Path]:
     return sorted(
         path
-        for path in DOCS_DIR.rglob("*")
+        for path in settings.docs_dir.rglob("*")
         if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES
     )
 
 
-def build_index(documents: list[tuple[str, str]]) -> int:
-    CHROMA_DIR.parent.mkdir(parents=True, exist_ok=True)
+def build_index(documents: list[tuple[str, str]], settings: IngestSettings) -> int:
+    chunk_text("validation", settings.chunk_size, settings.chunk_overlap)
+
+    settings.chroma_dir.parent.mkdir(parents=True, exist_ok=True)
     temp_dir = Path(
-        tempfile.mkdtemp(prefix=f"{CHROMA_DIR.name}-tmp-", dir=str(CHROMA_DIR.parent))
+        tempfile.mkdtemp(
+            prefix=f"{settings.chroma_dir.name}-tmp-",
+            dir=str(settings.chroma_dir.parent),
+        )
     )
 
     try:
         client = chromadb.PersistentClient(path=str(temp_dir))
         collection = client.get_or_create_collection(
-            name=COLLECTION_NAME,
+            name=settings.collection_name,
             metadata={"hnsw:space": "cosine"},
         )
 
@@ -146,7 +171,7 @@ def build_index(documents: list[tuple[str, str]]) -> int:
         metadatas: list[dict[str, str | int]] = []
 
         for rel_path, text in documents:
-            chunks = chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)
+            chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
 
             for idx, chunk in enumerate(chunks):
                 raw_id = f"{rel_path}:{idx}"
@@ -164,7 +189,7 @@ def build_index(documents: list[tuple[str, str]]) -> int:
         for start in range(0, len(texts), batch_size):
             end = start + batch_size
             batch_docs = texts[start:end]
-            embeddings = embed_texts(batch_docs)
+            embeddings = embed_texts(batch_docs, settings)
             collection.add(
                 ids=ids[start:end],
                 documents=batch_docs,
@@ -177,10 +202,10 @@ def build_index(documents: list[tuple[str, str]]) -> int:
             json.dumps(
                 {
                     "schema_version": 1,
-                    "embed_model": EMBED_MODEL,
-                    "collection_name": COLLECTION_NAME,
-                    "chunk_size": CHUNK_SIZE,
-                    "chunk_overlap": CHUNK_OVERLAP,
+                    "embed_model": settings.embed_model,
+                    "collection_name": settings.collection_name,
+                    "chunk_size": settings.chunk_size,
+                    "chunk_overlap": settings.chunk_overlap,
                 },
                 indent=2,
             )
@@ -188,14 +213,25 @@ def build_index(documents: list[tuple[str, str]]) -> int:
             encoding="utf-8",
         )
 
-        backup_dir = CHROMA_DIR.with_name(f"{CHROMA_DIR.name}.bak")
+        backup_dir = settings.chroma_dir.with_name(f"{settings.chroma_dir.name}.bak")
+        backup_created = False
         if backup_dir.exists():
             shutil.rmtree(backup_dir)
 
-        if CHROMA_DIR.exists():
-            CHROMA_DIR.replace(backup_dir)
+        if settings.chroma_dir.exists():
+            settings.chroma_dir.replace(backup_dir)
+            backup_created = True
 
-        temp_dir.replace(CHROMA_DIR)
+        try:
+            temp_dir.replace(settings.chroma_dir)
+        except Exception:
+            if (
+                backup_created
+                and backup_dir.exists()
+                and not settings.chroma_dir.exists()
+            ):
+                backup_dir.replace(settings.chroma_dir)
+            raise
 
         if backup_dir.exists():
             shutil.rmtree(backup_dir)
@@ -207,21 +243,23 @@ def build_index(documents: list[tuple[str, str]]) -> int:
 
 
 def main() -> None:
-    if not DOCS_DIR.exists():
-        raise SystemExit(f"Docs directory is missing: {DOCS_DIR}")
+    settings = get_settings()
 
-    files = iter_documents()
+    if not settings.docs_dir.exists():
+        raise SystemExit(f"Docs directory is missing: {settings.docs_dir}")
+
+    files = iter_documents(settings)
     if not files:
-        raise SystemExit(f"No files found in {DOCS_DIR}")
+        raise SystemExit(f"No files found in {settings.docs_dir}")
 
     documents: list[tuple[str, str]] = []
 
     for path in files:
-        rel_path = str(path.relative_to(DOCS_DIR))
+        rel_path = str(path.relative_to(settings.docs_dir))
         text = load_text(path)
         documents.append((rel_path, text))
 
-    chunk_count = build_index(documents)
+    chunk_count = build_index(documents, settings)
     print(f"Index built: {len(files)} files, {chunk_count} chunks")
 
 
