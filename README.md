@@ -19,10 +19,10 @@ flowchart TD
     E["OpenCode"] -->|MCP| F["lib/server.py"]
     F --> G["Search and retrieve chunks"]
     D --> G
-    G --> E
 
-    E --> H["Configured remote language model"]
-    H --> I["Answer using retrieved chunks"]
+    E -->|Prompt| H["Configured remote language model"]
+    G -."Retrieved chunks".-> H
+    H --> I["Answer"]
 ```
 
 ## Quick Start
