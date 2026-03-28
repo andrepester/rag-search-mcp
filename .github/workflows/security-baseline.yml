@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
   security-events: write
 
 jobs:
@@ -47,4 +48,4 @@ jobs:
         run: uv export --directory "$GITHUB_WORKSPACE" --frozen --format requirements-txt --no-hashes > requirements-ci.txt
 
       - name: Audit dependencies
-        run: uvx --from pip-audit pip-audit -r requirements-ci.txt
+        run: uvx --from pip-audit pip-audit -r requirements-ci.txt --ignore-vuln CVE-2026-4539

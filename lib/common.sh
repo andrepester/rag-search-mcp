@@ -101,8 +101,14 @@ resolve_repo_path() {
 }
 
 init_rag_env() {
-  export RAG_DOCS_DIR="$(resolve_repo_path "${RAG_DOCS_DIR:-$DEFAULT_RAG_DOCS_DIR}")"
-  export RAG_CHROMA_DIR="$(resolve_repo_path "${RAG_CHROMA_DIR:-$DEFAULT_RAG_CHROMA_DIR}")"
+  local resolved_docs_dir
+  local resolved_chroma_dir
+
+  resolved_docs_dir="$(resolve_repo_path "${RAG_DOCS_DIR:-$DEFAULT_RAG_DOCS_DIR}")"
+  resolved_chroma_dir="$(resolve_repo_path "${RAG_CHROMA_DIR:-$DEFAULT_RAG_CHROMA_DIR}")"
+
+  export RAG_DOCS_DIR="$resolved_docs_dir"
+  export RAG_CHROMA_DIR="$resolved_chroma_dir"
   export OLLAMA_HOST="${OLLAMA_HOST:-$DEFAULT_OLLAMA_HOST}"
   export EMBED_MODEL="${EMBED_MODEL:-$DEFAULT_EMBED_MODEL}"
   export COLLECTION_NAME="${COLLECTION_NAME:-$DEFAULT_COLLECTION_NAME}"

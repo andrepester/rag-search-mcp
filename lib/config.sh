@@ -3,8 +3,6 @@
 # Sourced by lib/install.sh; expects lib/common.sh to be loaded first.
 
 generate_opencode_config() {
-  local target="$REPO_ROOT/opencode.json"
-
   info "Updating project-local opencode.json..."
   if [[ "${DRY_RUN:-0}" == "1" ]]; then
     info "[dry-run] Would write project-local MCP config for $REPO_ROOT"
