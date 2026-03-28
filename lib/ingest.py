@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -19,6 +20,7 @@ COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "docs")
 CHUNK_SIZE = int(os.environ.get("RAG_CHUNK_SIZE", "1200"))
 CHUNK_OVERLAP = int(os.environ.get("RAG_CHUNK_OVERLAP", "200"))
 SUPPORTED_SUFFIXES = {".md", ".txt", ".pdf"}
+INDEX_METADATA_FILENAME = ".rag_index_meta.json"
 
 
 def load_text(path: Path) -> str:
@@ -128,6 +130,22 @@ def build_index(documents: list[tuple[str, str]]) -> int:
                 metadatas=metadatas[start:end],
                 embeddings=embeddings,
             )
+
+        metadata_path = temp_dir / INDEX_METADATA_FILENAME
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "embed_model": EMBED_MODEL,
+                    "collection_name": COLLECTION_NAME,
+                    "chunk_size": CHUNK_SIZE,
+                    "chunk_overlap": CHUNK_OVERLAP,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
         backup_dir = CHROMA_DIR.with_name(f"{CHROMA_DIR.name}.bak")
         if backup_dir.exists():

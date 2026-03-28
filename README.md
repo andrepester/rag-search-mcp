@@ -39,6 +39,25 @@ make reindex
 make doctor
 ```
 
+Dependency maintenance:
+
+```bash
+# Apply locked versions from uv.lock (no upgrades)
+make update
+
+# Upgrade all dependencies and refresh uv.lock
+make upgrade
+
+# Upgrade one dependency and refresh uv.lock
+make upgrade-package PACKAGE=chromadb
+
+# After upgrades, verify setup
+make doctor
+```
+
+If you changed `EMBED_MODEL` or `make doctor` reports an index/model mismatch,
+run `make reindex` to align embeddings with your current model configuration.
+
 ## OpenCode Skill
 
 This repository includes a project-local OpenCode skill for the MCP-backed
@@ -88,6 +107,7 @@ using the local MCP tools exposed by `lib/server.py`.
 2. Review `.env` if you want to change document path, index path, Ollama host, model, or chunking.
 3. Add documents to `RAG_DOCS_DIR`.
 4. Run `make reindex` to build a new index without deleting the previous one first.
+   Re-run `make reindex` whenever you change `EMBED_MODEL`.
 5. Run `make doctor` to verify binaries, dependencies, config alignment, indexed data, and MCP startup.
 6. Start OpenCode in this repo and use the `local_rag_*` tools or the `local-rag-mcp` skill.
 
@@ -121,10 +141,17 @@ OpenCode use one consistent workflow.
 | `RAG_DOCS_DIR` | `docs` | Document source directory |
 | `RAG_CHROMA_DIR` | `index` | Chroma vector index directory |
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama API endpoint |
-| `EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+| `EMBED_MODEL` | `nomic-embed-text` | Embedding model (pin a tag/version for stable results) |
 | `COLLECTION_NAME` | `docs` | Chroma collection name |
 | `RAG_CHUNK_SIZE` | `1200` | Chunk size in characters |
 | `RAG_CHUNK_OVERLAP` | `200` | Overlap between chunks |
+
+When `EMBED_MODEL` changes, the existing index remains usable. The server reads the
+index metadata and automatically uses the index model for query embeddings if there
+is a mismatch, then returns a reindex recommendation in search responses.
+
+If the index model is unavailable in Ollama, retrieval fails with a clear error and
+you should run `make reindex` after making the target model available.
 
 See `lib/.env.example` for the documented template.
 
@@ -147,9 +174,10 @@ underlying scripts so setup and maintenance can be run consistently through
 | `make install-no-ollama` | Skip ollama install/start/model pull |
 | `make install-no-config` | Skip `opencode.json` generation |
 | `make update` | Sync local Python dependencies from `uv.lock` |
+| `make upgrade` | Upgrade all Python dependencies and refresh `uv.lock` |
+| `make upgrade-package PACKAGE=<name>` | Upgrade one dependency and refresh `uv.lock` |
 | `make reindex` | Re-index documents using the shared config |
 | `make doctor` | Run health checks plus MCP smoke tests |
-| `make check` | Alias for `make doctor` |
 
 Example with installer flags:
 
