@@ -10,17 +10,18 @@ synced with `uv`.
 
 ## Architecture
 
-```
- Documents (local)
-     |
-     v
- lib/ingest.py ──> Ollama (nomic-embed-text) ──> Chroma (local index)
-                                                   |
-                                                   v
- OpenCode ──MCP──> lib/server.py ──> search/retrieve chunks
-     |
-     v
- configured remote language model answers using retrieved chunks
+```mermaid
+flowchart TD
+    A[Documents (local)] --> B[lib/ingest.py]
+    B --> C[Ollama (nomic-embed-text)]
+    C --> D[Chroma (local index)]
+
+    E[OpenCode] -- MCP --> F[lib/server.py]
+    F --> G[Search/retrieve chunks]
+    D --> G
+
+    G --> H[Configured remote language model]
+    H --> I[Answer using retrieved chunks]
 ```
 
 ## Quick Start
