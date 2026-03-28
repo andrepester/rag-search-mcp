@@ -146,6 +146,7 @@ underlying scripts so setup and maintenance can be run consistently through
 | `make install-yes` | Run installer without prompts |
 | `make install-no-ollama` | Skip ollama install/start/model pull |
 | `make install-no-config` | Skip `opencode.json` generation |
+| `make update` | Sync local Python dependencies from `uv.lock` |
 | `make reindex` | Re-index documents using the shared config |
 | `make doctor` | Run health checks plus MCP smoke tests |
 | `make check` | Alias for `make doctor` |

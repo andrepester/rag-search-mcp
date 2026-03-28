@@ -5,7 +5,7 @@ REINDEX_SH = ./lib/reindex.sh
 DOCTOR_SH = ./lib/doctor.sh
 INSTALL_ARGS =
 
-.PHONY: help install setup install-help install-dry-run install-yes install-no-ollama install-no-config post-install reindex doctor check
+.PHONY: help install setup install-help install-dry-run install-yes install-no-ollama install-no-config post-install update reindex doctor check
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -17,6 +17,7 @@ help:
 	@printf '  %-20s %s\n' 'make install-yes' 'Run installer without prompts'
 	@printf '  %-20s %s\n' 'make install-no-ollama' 'Skip ollama install/start/model pull'
 	@printf '  %-20s %s\n' 'make install-no-config' 'Skip opencode.json generation'
+	@printf '  %-20s %s\n' 'make update' 'Sync local Python deps from uv.lock'
 	@printf '  %-20s %s\n' 'make reindex' 'Rebuild the local vector index'
 	@printf '  %-20s %s\n' 'make doctor' 'Run health checks'
 	@printf '  %-20s %s\n' 'make check' 'Alias for doctor'
@@ -57,6 +58,10 @@ post-install:
 	@printf '  %s\n' '4. Start OpenCode in this directory'
 	@printf '  %s\n' '5. Test: ask OpenCode to use local_rag_search_docs'
 	@printf '  %s\n' '   If you used --skip-ollama or --skip-config, finish that setup first.'
+
+update:
+	@command -v uv >/dev/null 2>&1 || { printf '%s\n' '[error] uv not found on PATH. Run make install first.' >&2; exit 1; }
+	uv sync --directory "$(CURDIR)"
 
 reindex:
 	$(REINDEX_SH)
