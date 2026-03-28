@@ -16,14 +16,11 @@ flowchart TD
     B --> C["Ollama (nomic-embed-text)"]
     C --> D["Chroma (local index)"]
 
-    E["OpenCode"] --> F["MCP"]
-    F --> G["lib/server.py"]
-    G --> H["search/retrieve chunks"]
-    D --> H
+    E["OpenCode"] -->|MCP| F["lib/server.py"]
+    F --> G["search/retrieve chunks"]
+    D --> G
 
-    E --> I["configured remote language model"]
-    H --> I
-    I --> J["answers using retrieved chunks"]
+    E --> H["configured remote language model answers using retrieved chunks"]
 ```
 
 ## Quick Start
