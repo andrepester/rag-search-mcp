@@ -29,7 +29,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies
-        run: uv sync --directory "$GITHUB_WORKSPACE" --frozen
+        run: uv sync --directory "$GITHUB_WORKSPACE" --frozen --group dev
 
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
@@ -39,6 +39,15 @@ jobs:
 
       - name: Compile Python files
         run: uv run --directory "$GITHUB_WORKSPACE" python -m py_compile lib/server.py lib/ingest.py
+
+      - name: Lint Python files
+        run: uv run --directory "$GITHUB_WORKSPACE" ruff check lib tests
+
+      - name: Type-check Python files
+        run: uv run --directory "$GITHUB_WORKSPACE" mypy
+
+      - name: Run unit tests
+        run: uv run --directory "$GITHUB_WORKSPACE" pytest -q
 
       - name: Validate lockfile
         run: uv lock --directory "$GITHUB_WORKSPACE" --check

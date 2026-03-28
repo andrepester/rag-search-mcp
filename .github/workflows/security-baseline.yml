@@ -47,5 +47,29 @@ jobs:
       - name: Export locked requirements
         run: uv export --directory "$GITHUB_WORKSPACE" --frozen --format requirements-txt --no-hashes > requirements-ci.txt
 
+      - name: Explain temporary audit ignore
+        env:
+          PIP_AUDIT_IGNORE: CVE-2026-4539
+          PIP_AUDIT_IGNORE_UNTIL: 2026-06-30
+        run: |
+          if [ -n "${PIP_AUDIT_IGNORE:-}" ] && [ -n "${PIP_AUDIT_IGNORE_UNTIL:-}" ]; then
+            today_epoch="$(date -u +%s)"
+            until_epoch="$(date -u -j -f %F "${PIP_AUDIT_IGNORE_UNTIL}" +%s 2>/dev/null || date -u -d "${PIP_AUDIT_IGNORE_UNTIL}" +%s)"
+            if [ "$today_epoch" -gt "$until_epoch" ]; then
+              printf '%s\n' "pip-audit ignore ${PIP_AUDIT_IGNORE} expired on ${PIP_AUDIT_IGNORE_UNTIL}; remove ignore or extend with justification." >&2
+              exit 1
+            fi
+          fi
+
+          printf '%s\n' "Ignoring CVE-2026-4539 temporarily due upstream triage; remove once fixed upstream and lockfile updated."
+
       - name: Audit dependencies
-        run: uvx --from pip-audit pip-audit -r requirements-ci.txt --ignore-vuln CVE-2026-4539
+        env:
+          PIP_AUDIT_IGNORE: CVE-2026-4539
+          PIP_AUDIT_IGNORE_UNTIL: 2026-06-30
+        run: |
+          if [ -n "${PIP_AUDIT_IGNORE:-}" ]; then
+            uvx --from pip-audit pip-audit -r requirements-ci.txt --ignore-vuln "$PIP_AUDIT_IGNORE"
+          else
+            uvx --from pip-audit pip-audit -r requirements-ci.txt
+          fi
