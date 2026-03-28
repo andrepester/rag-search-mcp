@@ -48,6 +48,20 @@ class _FakeClient:
         return self.collection
 
 
+def _settings(tmp_path, **overrides) -> ingest.IngestSettings:
+    data = {
+        "docs_dir": tmp_path / "docs",
+        "chroma_dir": tmp_path / "index",
+        "ollama_host": "http://127.0.0.1:11434",
+        "embed_model": "nomic-embed-text",
+        "collection_name": "docs",
+        "chunk_size": 20,
+        "chunk_overlap": 5,
+    }
+    data.update(overrides)
+    return ingest.IngestSettings(**data)
+
+
 def test_chunk_text_validates_arguments() -> None:
     with pytest.raises(ValueError, match="chunk_size"):
         ingest.chunk_text("hello", 0, 0)
@@ -55,15 +69,22 @@ def test_chunk_text_validates_arguments() -> None:
     with pytest.raises(ValueError, match="overlap"):
         ingest.chunk_text("hello", 10, -1)
 
+    with pytest.raises(ValueError, match="smaller"):
+        ingest.chunk_text("hello", 10, 10)
 
-def test_embed_texts_validates_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_embed_texts_validates_payload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    settings = _settings(tmp_path)
+
     monkeypatch.setattr(
         ingest.httpx,
         "Client",
         lambda timeout: _FakeHttpClient({"embeddings": [[1.0, 2.0], [3, 4.5]]}),
     )
 
-    embeddings = ingest.embed_texts(["a", "b"])
+    embeddings = ingest.embed_texts(["a", "b"], settings)
     assert embeddings == [[1.0, 2.0], [3.0, 4.5]]
 
     monkeypatch.setattr(
@@ -73,7 +94,7 @@ def test_embed_texts_validates_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     with pytest.raises(ingest.IngestError, match="non-numeric"):
-        ingest.embed_texts(["a"])
+        ingest.embed_texts(["a"], settings)
 
     monkeypatch.setattr(
         ingest.httpx,
@@ -82,34 +103,86 @@ def test_embed_texts_validates_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     with pytest.raises(ingest.IngestError, match="invalid embeddings payload"):
-        ingest.embed_texts(["a"])
+        ingest.embed_texts(["a"], settings)
+
+
+def test_embed_texts_rejects_count_mismatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    settings = _settings(tmp_path)
+    monkeypatch.setattr(
+        ingest.httpx,
+        "Client",
+        lambda timeout: _FakeHttpClient({"embeddings": [[1.0, 2.0]]}),
+    )
+
+    with pytest.raises(ingest.IngestError, match="unexpected embedding count"):
+        ingest.embed_texts(["a", "b"], settings)
 
 
 def test_build_index_writes_metadata_and_chunks(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     fake_client = _FakeClient()
+    settings = _settings(tmp_path, embed_model="nomic-embed-text:latest")
 
     monkeypatch.setattr(ingest.chromadb, "PersistentClient", lambda path: fake_client)
     monkeypatch.setattr(
-        ingest, "embed_texts", lambda texts: [[0.1, 0.2] for _ in texts]
+        ingest,
+        "embed_texts",
+        lambda texts, _settings: [[0.1, 0.2] for _ in texts],
     )
-    monkeypatch.setattr(ingest, "CHROMA_DIR", tmp_path / "index")
-    monkeypatch.setattr(ingest, "EMBED_MODEL", "nomic-embed-text:latest")
-    monkeypatch.setattr(ingest, "COLLECTION_NAME", "docs")
-    monkeypatch.setattr(ingest, "CHUNK_SIZE", 20)
-    monkeypatch.setattr(ingest, "CHUNK_OVERLAP", 5)
 
     count = ingest.build_index(
-        [("sample.md", "first paragraph\n\nsecond paragraph\n\nthird paragraph")]
+        [("sample.md", "first paragraph\n\nsecond paragraph\n\nthird paragraph")],
+        settings,
     )
 
     assert count > 0
     assert fake_client.collection.add_calls
 
-    metadata_path = tmp_path / "index" / ingest.INDEX_METADATA_FILENAME
+    metadata_path = settings.chroma_dir / ingest.INDEX_METADATA_FILENAME
     assert metadata_path.exists()
 
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert metadata["embed_model"] == "nomic-embed-text:latest"
     assert metadata["collection_name"] == "docs"
+
+
+def test_build_index_rolls_back_on_swap_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    fake_client = _FakeClient()
+    settings = _settings(tmp_path)
+
+    settings.chroma_dir.mkdir(parents=True, exist_ok=True)
+    marker = settings.chroma_dir / "marker.txt"
+    marker.write_text("existing", encoding="utf-8")
+
+    temp_dir = tmp_path / "index-tmp-fixed"
+
+    def fake_mkdtemp(*_args, **_kwargs) -> str:
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        return str(temp_dir)
+
+    original_replace = ingest.Path.replace
+
+    def flaky_replace(self: ingest.Path, target: ingest.Path) -> ingest.Path:
+        if self == temp_dir and target == settings.chroma_dir:
+            raise OSError("swap failed")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(ingest.chromadb, "PersistentClient", lambda path: fake_client)
+    monkeypatch.setattr(ingest.tempfile, "mkdtemp", fake_mkdtemp)
+    monkeypatch.setattr(
+        ingest,
+        "embed_texts",
+        lambda texts, _settings: [[0.1, 0.2] for _ in texts],
+    )
+    monkeypatch.setattr(ingest.Path, "replace", flaky_replace)
+
+    with pytest.raises(OSError, match="swap failed"):
+        ingest.build_index([("sample.md", "alpha\n\nbeta")], settings)
+
+    assert marker.exists()
+    assert marker.read_text(encoding="utf-8") == "existing"

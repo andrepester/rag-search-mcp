@@ -83,17 +83,9 @@ check_server_imports() {
   uv --directory "$REPO_ROOT" run python - <<'PY'
 from __future__ import annotations
 
-import importlib.util
-import os
-from pathlib import Path
+from lib import server
 
-server_path = Path(os.environ["REPO_ROOT"]) / "lib/server.py"
-spec = importlib.util.spec_from_file_location("local_rag_server", server_path)
-module = importlib.util.module_from_spec(spec)
-assert spec and spec.loader
-spec.loader.exec_module(module)
-
-module.list_sources()
+server.list_sources()
 PY
 }
 
