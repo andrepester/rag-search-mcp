@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -11,8 +12,30 @@ CHROMA_DIR = Path(os.environ.get("RAG_CHROMA_DIR", "index")).expanduser().resolv
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "docs")
+INDEX_METADATA_FILENAME = ".rag_index_meta.json"
 
 mcp = FastMCP("local_rag", json_response=True)
+
+
+def load_index_metadata() -> dict[str, object]:
+    metadata_path = CHROMA_DIR / INDEX_METADATA_FILENAME
+    if not metadata_path.exists():
+        return {}
+
+    try:
+        content = metadata_path.read_text(encoding="utf-8")
+        data = json.loads(content)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def get_index_embed_model() -> str:
+    metadata = load_index_metadata()
+    model = metadata.get("embed_model")
+    if isinstance(model, str) and model.strip():
+        return model.strip()
+    return EMBED_MODEL
 
 
 def get_collection():
@@ -23,11 +46,11 @@ def get_collection():
         return None
 
 
-def embed_query(text: str) -> list[float]:
+def embed_query(text: str, embed_model: str) -> list[float]:
     with httpx.Client(timeout=120.0) as client:
         response = client.post(
             f"{OLLAMA_HOST}/api/embed",
-            json={"model": EMBED_MODEL, "input": text},
+            json={"model": embed_model, "input": text},
         )
         response.raise_for_status()
         data = response.json()
@@ -100,8 +123,45 @@ def search_docs(
 
     top_k = max(1, top_k)
 
+    configured_embed_model = EMBED_MODEL
+    index_embed_model = get_index_embed_model()
+    query_embed_model = index_embed_model
+
+    warnings: list[str] = []
+    reindex_recommended = False
+    if configured_embed_model != index_embed_model:
+        reindex_recommended = True
+        warnings.append(
+            "Configured EMBED_MODEL does not match index model; "
+            "using index model for query embeddings."
+        )
+
+    try:
+        query_embedding = embed_query(query, query_embed_model)
+    except Exception as exc:
+        response: dict[str, object] = {
+            "query": query,
+            "matches": [],
+            "configured_embed_model": configured_embed_model,
+            "index_embed_model": index_embed_model,
+            "query_embed_model": query_embed_model,
+            "error": f"Failed to create query embedding with model '{query_embed_model}': {exc}",
+        }
+        if source_filter:
+            response["source_filter"] = source_filter
+            response["matched_sources"] = []
+        if warnings:
+            response["warnings"] = warnings
+        response["reindex_recommended"] = True
+        response["reindex_reason"] = (
+            "Index embeddings are not compatible with current runtime configuration "
+            "or the index model is unavailable. Run 'make reindex' after ensuring "
+            "the target model is available in Ollama."
+        )
+        return response
+
     query_kwargs: dict[str, object] = {
-        "query_embeddings": [embed_query(query)],
+        "query_embeddings": [query_embedding],
         "n_results": top_k,
         "include": ["documents", "metadatas", "distances"],
     }
@@ -139,10 +199,24 @@ def search_docs(
         if len(matches) >= top_k:
             break
 
-    response: dict[str, object] = {"query": query, "matches": matches}
+    response: dict[str, object] = {
+        "query": query,
+        "matches": matches,
+        "configured_embed_model": configured_embed_model,
+        "index_embed_model": index_embed_model,
+        "query_embed_model": query_embed_model,
+    }
     if source_filter:
         response["source_filter"] = source_filter
         response["matched_sources"] = matched_sources
+    if warnings:
+        response["warnings"] = warnings
+    if reindex_recommended:
+        response["reindex_recommended"] = True
+        response["reindex_reason"] = (
+            "Current index was built with a different embedding model than EMBED_MODEL. "
+            "The server used the index model for compatibility. Run 'make reindex' to align."
+        )
     return response
 
 

@@ -11,6 +11,7 @@ init_rag_env
 
 passed=0
 failed=0
+warned=0
 
 check() {
   local label="$1"
@@ -21,6 +22,18 @@ check() {
   else
     printf '[FAIL]  %s\n' "$label"
     failed=$((failed + 1))
+  fi
+}
+
+warn_check() {
+  local label="$1"
+  shift
+  if "$@" &>/dev/null; then
+    printf '[ok]    %s\n' "$label"
+    passed=$((passed + 1))
+  else
+    printf '[warn]  %s\n' "$label"
+    warned=$((warned + 1))
   fi
 }
 
@@ -114,6 +127,57 @@ raise SystemExit(0 if alive else 1)
 PY
 }
 
+check_index_model_matches_config() {
+  uv --directory "$REPO_ROOT" run python - <<'PY'
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+index_dir = Path(os.environ["RAG_CHROMA_DIR"])
+configured_model = os.environ["EMBED_MODEL"].strip()
+metadata_path = index_dir / ".rag_index_meta.json"
+
+if not metadata_path.exists():
+    raise SystemExit(1)
+
+try:
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+except json.JSONDecodeError:
+    raise SystemExit(1)
+
+index_model = str(metadata.get("embed_model", "")).strip()
+raise SystemExit(0 if index_model and index_model == configured_model else 1)
+PY
+}
+
+index_embed_model() {
+  uv --directory "$REPO_ROOT" run python - <<'PY'
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+index_dir = Path(os.environ["RAG_CHROMA_DIR"])
+metadata_path = index_dir / ".rag_index_meta.json"
+if not metadata_path.exists():
+    raise SystemExit(1)
+
+try:
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+except json.JSONDecodeError:
+    raise SystemExit(1)
+
+model = str(metadata.get("embed_model", "")).strip()
+if not model:
+    raise SystemExit(1)
+
+print(model)
+PY
+}
+
 echo "=== Local RAG Doctor ==="
 echo ""
 echo "Config: docs=$RAG_DOCS_DIR index=$RAG_CHROMA_DIR ollama=$OLLAMA_HOST model=$EMBED_MODEL collection=$COLLECTION_NAME"
@@ -127,6 +191,22 @@ check "ollama endpoint is reachable" curl -sf "$OLLAMA_HOST/"
 # ── Embedding model ──────────────────────────────────────────────────
 model="$EMBED_MODEL"
 check "ollama model '$model' available" ollama show "$model"
+
+# ── Index/model compatibility ────────────────────────────────────────
+warn_check "Index embed model matches EMBED_MODEL" check_index_model_matches_config
+index_model=""
+if index_model="$(index_embed_model 2>/dev/null)"; then
+  if [[ "$index_model" != "$EMBED_MODEL" ]]; then
+    echo "[warn]  Index uses '$index_model' but EMBED_MODEL is '$EMBED_MODEL'; server will fallback to index model"
+    echo "[warn]  Reindex recommended: make reindex"
+    warned=$((warned + 1))
+  fi
+  check "Index embed model '$index_model' available" ollama show "$index_model"
+else
+  echo "[warn]  Index metadata missing or invalid; cannot verify embed model compatibility"
+  echo "[warn]  Reindex recommended: make reindex"
+  warned=$((warned + 1))
+fi
 
 # ── Python dependencies ─────────────────────────────────────────────
 check "pyproject.toml exists"      test -f "$REPO_ROOT/pyproject.toml"
@@ -157,7 +237,7 @@ check "MCP server starts over stdio" check_server_starts
 
 # ── Summary ──────────────────────────────────────────────────────────
 echo ""
-echo "=== Results: $passed passed, $failed failed ==="
+echo "=== Results: $passed passed, $warned warnings, $failed failed ==="
 
 if [[ $failed -gt 0 ]]; then
   exit 1
