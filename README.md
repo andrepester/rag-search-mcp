@@ -21,6 +21,16 @@ flowchart TD
     D --> G
 
     E --> H["configured remote language model answers using retrieved chunks"]
+
+    classDef docs fill:#fef3c7,stroke:#b45309,stroke-width:1px,color:#111827;
+    classDef opencode fill:#dbeafe,stroke:#1d4ed8,stroke-width:1px,color:#111827;
+    classDef vector fill:#dcfce7,stroke:#15803d,stroke-width:1px,color:#111827;
+    classDef libs fill:#ede9fe,stroke:#6d28d9,stroke-width:1px,color:#111827;
+
+    class A docs;
+    class E opencode;
+    class C,D vector;
+    class B,F libs;
 ```
 
 ## Quick Start
