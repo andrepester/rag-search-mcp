@@ -1,9 +1,12 @@
 # Local RAG with MCP for OpenCode
 
-A self-contained local RAG (Retrieval-Augmented Generation) system that connects
-to OpenCode via MCP (Model Context Protocol). Documents, embeddings, and vector
-index stay local; only retrieved chunks are sent to the configured remote
-language model for answer generation.
+Local RAG for OpenCode via MCP (Model Context Protocol). Documents, embeddings,
+and the Chroma index stay local; only retrieved chunks are sent to the
+configured remote language model for answer generation.
+
+System dependencies are installed through Homebrew (macOS) or Linux package
+managers (for example `apt`/`dnf`), while Python dependencies are locked and
+synced with `uv`.
 
 ## Architecture
 
@@ -21,6 +24,10 @@ language model for answer generation.
 ```
 
 ## Quick Start
+
+The installer handles dependency setup per platform: Homebrew on macOS and
+Linux package/bootstrap tooling on Linux (for example `apt`/`dnf` plus vendor
+install scripts).
 
 ```bash
 # Install everything (uv, ollama, locked Python deps, project-local opencode.json)
@@ -221,5 +228,7 @@ make install-help
 ## Requirements
 
 - macOS or Linux
+- Homebrew on macOS, or a Linux package manager (for example `apt`/`dnf`) for system dependencies
+- `curl` available for installer/bootstrap steps
 - OpenCode with a configured model provider
-- Internet connection (for initial dependency installation)
+- Internet connection (for initial dependency installation and model download)
