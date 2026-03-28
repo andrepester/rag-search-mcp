@@ -1,0 +1,44 @@
+name: ci-fast
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          cache-local-path: ~/.cache/uv
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --directory "$GITHUB_WORKSPACE" --frozen
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: shellcheck lib/*.sh
+
+      - name: Compile Python files
+        run: uv run --directory "$GITHUB_WORKSPACE" python -m py_compile lib/server.py lib/ingest.py
+
+      - name: Validate lockfile
+        run: uv lock --directory "$GITHUB_WORKSPACE" --check
