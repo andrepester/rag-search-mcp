@@ -19,15 +19,6 @@ from pathlib import Path
 repo_root = Path(os.environ["REPO_ROOT"])
 target = repo_root / "opencode.json"
 
-
-def to_repo_relative(path_value: str) -> str:
-    path = Path(path_value).expanduser()
-    resolved = path.resolve() if path.is_absolute() else (repo_root / path).resolve()
-    try:
-        return str(resolved.relative_to(repo_root))
-    except ValueError:
-        return str(resolved)
-
 config: dict[str, object] = {}
 if target.exists():
     try:
@@ -47,13 +38,15 @@ mcp["local_rag"] = {
     "type": "local",
     "command": [
         "uv",
+        "--directory",
+        str(repo_root),
         "run",
         "lib/server.py",
     ],
     "enabled": True,
     "timeout": 10000,
     "environment": {
-        "RAG_CHROMA_DIR": to_repo_relative(os.environ["RAG_CHROMA_DIR"]),
+        "RAG_CHROMA_DIR": os.environ["RAG_CHROMA_DIR"],
         "OLLAMA_HOST": os.environ["OLLAMA_HOST"],
         "EMBED_MODEL": os.environ["EMBED_MODEL"],
         "COLLECTION_NAME": os.environ["COLLECTION_NAME"],

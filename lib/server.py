@@ -4,13 +4,22 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import chromadb
 import httpx
 from chromadb.errors import ChromaError, NotFoundError
 from mcp.server.fastmcp import FastMCP
 
-from lib.embedding_payload import parse_query_embedding_payload
+if TYPE_CHECKING:
+    from lib.embedding_payload import parse_query_embedding_payload
+else:
+    try:
+        from lib.embedding_payload import parse_query_embedding_payload as _parse_query
+    except ModuleNotFoundError:
+        from embedding_payload import parse_query_embedding_payload as _parse_query
+
+    parse_query_embedding_payload = _parse_query
 
 DEFAULT_CHROMA_DIR = "index"
 DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"

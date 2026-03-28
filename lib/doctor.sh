@@ -67,20 +67,9 @@ repo_root = Path(os.environ["REPO_ROOT"])
 config_path = repo_root / "opencode.json"
 config = json.loads(config_path.read_text(encoding="utf-8"))
 block = config["mcp"]["local_rag"]
-
-
-def to_repo_relative(path_value: str) -> str:
-    path = Path(path_value).expanduser()
-    resolved = path.resolve() if path.is_absolute() else (repo_root / path).resolve()
-    try:
-        return str(resolved.relative_to(repo_root))
-    except ValueError:
-        return str(resolved)
-
-
-expected_command = ["uv", "run", "lib/server.py"]
+expected_command = ["uv", "--directory", str(repo_root), "run", "lib/server.py"]
 expected_env = {
-    "RAG_CHROMA_DIR": to_repo_relative(os.environ["RAG_CHROMA_DIR"]),
+    "RAG_CHROMA_DIR": os.environ["RAG_CHROMA_DIR"],
     "OLLAMA_HOST": os.environ["OLLAMA_HOST"],
     "EMBED_MODEL": os.environ["EMBED_MODEL"],
     "COLLECTION_NAME": os.environ["COLLECTION_NAME"],
@@ -94,17 +83,9 @@ check_server_imports() {
   uv --directory "$REPO_ROOT" run python - <<'PY'
 from __future__ import annotations
 
-import importlib.util
-import os
-from pathlib import Path
+from lib import server
 
-server_path = Path(os.environ["REPO_ROOT"]) / "lib/server.py"
-spec = importlib.util.spec_from_file_location("local_rag_server", server_path)
-module = importlib.util.module_from_spec(spec)
-assert spec and spec.loader
-spec.loader.exec_module(module)
-
-module.list_sources()
+server.list_sources()
 PY
 }
 

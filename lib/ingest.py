@@ -8,13 +8,21 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import chromadb
 import httpx
 from pypdf import PdfReader
 
-from lib.embedding_payload import parse_batch_embedding_payload
+if TYPE_CHECKING:
+    from lib.embedding_payload import parse_batch_embedding_payload
+else:
+    try:
+        from lib.embedding_payload import parse_batch_embedding_payload as _parse_batch
+    except ModuleNotFoundError:
+        from embedding_payload import parse_batch_embedding_payload as _parse_batch
+
+    parse_batch_embedding_payload = _parse_batch
 
 DEFAULT_DOCS_DIR = "docs"
 DEFAULT_CHROMA_DIR = "index"
