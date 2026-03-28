@@ -70,7 +70,7 @@ has_cmd() {
 
 # ── Environment/config helpers ────────────────────────────────────────
 load_env_file() {
-  local env_file="${1:-$REPO_ROOT/.env}"
+  local env_file="$REPO_ROOT/.env"
   local line
   local key
   local value
