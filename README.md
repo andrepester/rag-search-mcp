@@ -133,6 +133,25 @@ Try these prompts:
 - `Search my local docs for <your topic>.`
 - `Use the local-rag-mcp skill to search the indexed docs before answering.`
 
+## Quality Checks
+
+Run local quality gates before creating a PR:
+
+```bash
+uv sync --group dev
+uv run ruff check lib tests
+uv run mypy
+uv run pytest -q
+```
+
+The fast CI workflow executes these checks on every push and pull request.
+
+## Troubleshooting
+
+- `make doctor` fails with model/index mismatch: run `make reindex` after confirming `EMBED_MODEL` and the Ollama model availability.
+- `local_rag_search_docs` returns embedding errors: verify Ollama API availability at `OLLAMA_HOST` and that the embedding model exists (`ollama pull <model>`).
+- No matches from a source filter: use `local_rag_list_sources` first and pass a substring from the indexed `source_path`.
+
 ## Configuration
 
 All settings have sensible defaults. Override them in `.env` or via exported
