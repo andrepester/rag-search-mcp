@@ -12,17 +12,17 @@ synced with `uv`.
 
 ```mermaid
 flowchart TD
-    A["Documents local"] --> B["lib/ingest.py"]
-    B --> C["Ollama: nomic-embed-text"]
-    C --> D["Chroma local index"]
+    A["Documents (local)"] --> B["lib/ingest.py"]
+    B --> C["Ollama (nomic-embed-text)"]
+    C --> D["Chroma (local index)"]
 
     E["OpenCode"] -->|MCP| F["lib/server.py"]
-    F --> G["Search and retrieve chunks"]
+    F --> G["search/retrieve chunks"]
     D --> G
 
-    E -->|Prompt| H["Configured remote language model"]
-    G -."Retrieved chunks".-> H
-    H --> I["Answer"]
+    E --> H["remote language model"]
+    G --> H
+    H --> I["answer using retrieved chunks"]
 ```
 
 ## Quick Start
