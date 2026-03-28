@@ -20,6 +20,14 @@ jobs:
       - name: Start Ollama container
         run: docker run -d --name ollama -p 11434:11434 ollama/ollama:latest
 
+      - name: Install Ollama CLI shim
+        run: |
+          sudo tee /usr/local/bin/ollama >/dev/null <<'EOF'
+          #!/usr/bin/env bash
+          exec docker exec ollama ollama "$@"
+          EOF
+          sudo chmod +x /usr/local/bin/ollama
+
       - name: Wait for Ollama API
         run: |
           for i in $(seq 1 60); do
