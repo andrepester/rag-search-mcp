@@ -20,3 +20,8 @@ htmlcov/
 
 # OS clutter
 .DS_Store
+
+# Private local docs (keep test file tracked)
+docs/**
+!docs/
+!docs/rag-test.md
