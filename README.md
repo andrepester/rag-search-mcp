@@ -47,7 +47,8 @@ Compose file path: `docker/docker-compose.yml`
 - `HOST_CODE_DIR` mount is required (defaults to `./data/code`, can be empty)
 - `ollama` service is included in the same Compose stack
 - Chroma persistence is stored on the host at `./data/index` via bind mount
-- Ollama persistence is stored on the host at `./data/models` via bind mount
+- Ollama home (`/root/.ollama`) is persisted in a Docker named volume (`ollama_home`)
+- Ollama model artifacts (`/root/.ollama/models`) are stored on the host at `./data/models`
 - Published container ports are bound to `127.0.0.1` (localhost-only)
 - Compose sets `RAG_HTTP_HOST=0.0.0.0` inside container so host port publishing still works
 

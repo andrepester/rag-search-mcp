@@ -5,7 +5,8 @@ services:
     ports:
       - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
     volumes:
-      - ./data/models:/root/.ollama
+      - ollama_home:/root/.ollama
+      - ./data/models:/root/.ollama/models
 
   chroma:
     image: chromadb/chroma:1.3.5
@@ -52,3 +53,6 @@ services:
     volumes:
       - ${HOST_DOCS_DIR:-./data/docs}:/data/docs:ro
       - ${HOST_CODE_DIR:-./data/code}:/data/code:ro
+
+volumes:
+  ollama_home:
