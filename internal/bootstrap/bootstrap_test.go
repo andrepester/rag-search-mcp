@@ -99,6 +99,54 @@ func TestResolvePortUsesDefaultWhenUnset(t *testing.T) {
 	}
 }
 
+func TestEnsureHostDataDirsCreatesDefaults(t *testing.T) {
+	repoRoot := t.TempDir()
+
+	if err := EnsureHostDataDirs(repoRoot); err != nil {
+		t.Fatalf("EnsureHostDataDirs() failed: %v", err)
+	}
+
+	for _, dir := range []string{
+		filepath.Join(repoRoot, "data", "docs"),
+		filepath.Join(repoRoot, "data", "code"),
+		filepath.Join(repoRoot, "data", "index"),
+	} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("expected %s to exist: %v", dir, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("expected %s to be a directory", dir)
+		}
+	}
+}
+
+func TestEnsureHostDataDirsUsesConfiguredDocAndCodePaths(t *testing.T) {
+	repoRoot := t.TempDir()
+	envContent := "HOST_DOCS_DIR=./custom/docs\nHOST_CODE_DIR=./custom/code\n"
+	if err := os.WriteFile(filepath.Join(repoRoot, ".env"), []byte(envContent), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	if err := EnsureHostDataDirs(repoRoot); err != nil {
+		t.Fatalf("EnsureHostDataDirs() failed: %v", err)
+	}
+
+	for _, dir := range []string{
+		filepath.Join(repoRoot, "custom", "docs"),
+		filepath.Join(repoRoot, "custom", "code"),
+		filepath.Join(repoRoot, "data", "index"),
+	} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("expected %s to exist: %v", dir, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("expected %s to be a directory", dir)
+		}
+	}
+}
+
 func TestUpsertOpenCodeConfigCreatesFile(t *testing.T) {
 	repoRoot := t.TempDir()
 

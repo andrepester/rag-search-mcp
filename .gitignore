@@ -1,8 +1,6 @@
 opencode.json
 opencode.json.*
 .env
-index/*
-!index/.gitkeep
 
 # Local virtual envs and caches
 .venv/
@@ -28,3 +26,8 @@ data/docs/**
 data/code/**
 !data/code/
 !data/code/.gitkeep
+
+# Local index mount content (keep directory placeholder tracked)
+data/index/**
+!data/index/
+!data/index/.gitkeep

@@ -35,6 +35,16 @@ func TestRunCreatesEnvAndOpenCodeConfig(t *testing.T) {
 	if !strings.Contains(string(raw), "http://127.0.0.1:8090/mcp") {
 		t.Fatalf("opencode.json did not include expected URL: %s", string(raw))
 	}
+
+	for _, dir := range []string{
+		filepath.Join(repoRoot, "data", "docs"),
+		filepath.Join(repoRoot, "data", "code"),
+		filepath.Join(repoRoot, "data", "index"),
+	} {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Fatalf("expected directory %s to exist: %v", dir, err)
+		}
+	}
 }
 
 func assertFileMode(t *testing.T, path string, want os.FileMode) {

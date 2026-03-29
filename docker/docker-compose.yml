@@ -19,7 +19,7 @@ services:
       retries: 20
       start_period: 10s
     volumes:
-      - chroma_data:/data
+      - ./data/index:/data
 
   rag-mcp:
     build:
@@ -54,5 +54,4 @@ services:
       - ${HOST_CODE_DIR:-./data/code}:/data/code:ro
 
 volumes:
-  chroma_data:
   ollama_data:

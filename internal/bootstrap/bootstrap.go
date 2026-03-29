@@ -16,6 +16,9 @@ const (
 	envFileName     = ".env"
 	envExampleName  = ".env.example"
 	opencodeName    = "opencode.json"
+	hostIndexDir    = "./data/index"
+	hostDocsDir     = "./data/docs"
+	hostCodeDir     = "./data/code"
 )
 
 func EnsureEnvFile(repoRoot string) (bool, error) {
@@ -92,6 +95,92 @@ func ResolvePort(repoRoot string) (int, error) {
 	}
 
 	return defaultHTTPPort, nil
+}
+
+func EnsureHostDataDirs(repoRoot string) error {
+	envValues, err := loadEnvFile(repoRoot)
+	if err != nil {
+		return err
+	}
+
+	docsDir, err := resolveHostPath(repoRoot, envValues["HOST_DOCS_DIR"], hostDocsDir)
+	if err != nil {
+		return fmt.Errorf("resolve HOST_DOCS_DIR: %w", err)
+	}
+	codeDir, err := resolveHostPath(repoRoot, envValues["HOST_CODE_DIR"], hostCodeDir)
+	if err != nil {
+		return fmt.Errorf("resolve HOST_CODE_DIR: %w", err)
+	}
+	indexDir, err := resolveHostPath(repoRoot, "", hostIndexDir)
+	if err != nil {
+		return fmt.Errorf("resolve index directory: %w", err)
+	}
+
+	for _, dir := range []string{docsDir, codeDir, indexDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create directory %s: %w", dir, err)
+		}
+	}
+
+	return nil
+}
+
+func loadEnvFile(repoRoot string) (map[string]string, error) {
+	values := map[string]string{}
+	envPath := filepath.Join(repoRoot, envFileName)
+
+	file, err := os.Open(envPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return values, nil
+		}
+		return nil, fmt.Errorf("open .env: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+		if key == "" || value == "" {
+			continue
+		}
+
+		values[key] = value
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read .env: %w", err)
+	}
+
+	return values, nil
+}
+
+func resolveHostPath(repoRoot string, configured string, fallback string) (string, error) {
+	rawPath := strings.TrimSpace(configured)
+	if rawPath == "" {
+		rawPath = fallback
+	}
+
+	if filepath.IsAbs(rawPath) {
+		return rawPath, nil
+	}
+
+	if rawPath == "" {
+		return "", fmt.Errorf("path must not be empty")
+	}
+
+	return filepath.Abs(filepath.Join(repoRoot, rawPath))
 }
 
 func UpsertOpenCodeConfig(repoRoot string, port int) error {
