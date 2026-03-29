@@ -11,10 +11,10 @@ import (
 
 	"github.com/ledongthuc/pdf"
 
-	"local-rag/internal/chunk"
-	"local-rag/internal/config"
-	"local-rag/internal/ollama"
-	"local-rag/internal/store"
+	"github.com/andrepester/rag-search-mcp/internal/chunk"
+	"github.com/andrepester/rag-search-mcp/internal/config"
+	"github.com/andrepester/rag-search-mcp/internal/ollama"
+	"github.com/andrepester/rag-search-mcp/internal/store"
 )
 
 type Service struct {

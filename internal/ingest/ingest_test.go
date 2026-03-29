@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"local-rag/internal/config"
-	"local-rag/internal/store"
+	"github.com/andrepester/rag-search-mcp/internal/config"
+	"github.com/andrepester/rag-search-mcp/internal/store"
 )
 
 func TestLoadScopeDocumentsSkipsSymlinks(t *testing.T) {

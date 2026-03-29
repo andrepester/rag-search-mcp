@@ -7,10 +7,10 @@ import (
 	"log"
 	"time"
 
-	"local-rag/internal/config"
-	"local-rag/internal/ingest"
-	"local-rag/internal/ollama"
-	"local-rag/internal/store"
+	"github.com/andrepester/rag-search-mcp/internal/config"
+	"github.com/andrepester/rag-search-mcp/internal/ingest"
+	"github.com/andrepester/rag-search-mcp/internal/ollama"
+	"github.com/andrepester/rag-search-mcp/internal/store"
 )
 
 const (

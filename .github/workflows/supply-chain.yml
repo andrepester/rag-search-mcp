@@ -108,7 +108,7 @@ jobs:
           grype version
 
       - name: Build runtime image
-        run: docker build -f docker/Dockerfile -t local-rag-scan:ci .
+        run: docker build -f docker/Dockerfile -t rag-search-mcp-scan:ci .
 
       - name: Generate filesystem SBOM (Syft)
         run: syft dir:. -o cyclonedx-json=sbom-fs.cdx.json
@@ -129,7 +129,7 @@ jobs:
           sarif_file: grype-fs.sarif
 
       - name: Generate image SBOM (Syft)
-        run: syft local-rag-scan:ci -o cyclonedx-json=sbom-image.cdx.json
+        run: syft rag-search-mcp-scan:ci -o cyclonedx-json=sbom-image.cdx.json
 
       - name: Upload image SBOM artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

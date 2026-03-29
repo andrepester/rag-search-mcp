@@ -1,4 +1,4 @@
-# RAG MCP Service (Go + Chroma + Ollama)
+# rag-search-mcp (Go + Chroma + Ollama)
 
 ## Overview
 

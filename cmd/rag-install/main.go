@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"local-rag/internal/bootstrap"
+	"github.com/andrepester/rag-search-mcp/internal/bootstrap"
 )
 
 func main() {
