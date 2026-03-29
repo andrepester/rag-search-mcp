@@ -52,7 +52,7 @@ jobs:
           test -f opencode.json
 
       - name: Run tests in Docker build stage
-        run: docker build -f docker/Dockerfile --target test -t local-rag-test .
+        run: docker build -f docker/Dockerfile --target test -t rag-search-mcp-test .
 
       - name: Validate Docker Compose
         run: docker compose --project-directory . -f docker/docker-compose.yml config

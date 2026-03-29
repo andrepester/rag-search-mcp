@@ -12,10 +12,10 @@ import (
 	"sync"
 	"testing"
 
-	"local-rag/internal/config"
-	"local-rag/internal/ingest"
-	"local-rag/internal/ollama"
-	"local-rag/internal/store"
+	"github.com/andrepester/rag-search-mcp/internal/config"
+	"github.com/andrepester/rag-search-mcp/internal/ingest"
+	"github.com/andrepester/rag-search-mcp/internal/ollama"
+	"github.com/andrepester/rag-search-mcp/internal/store"
 )
 
 func TestServiceReindexAndSearchScopes(t *testing.T) {
@@ -24,7 +24,7 @@ func TestServiceReindexAndSearchScopes(t *testing.T) {
 	docsDir := t.TempDir()
 	codeDir := t.TempDir()
 
-	if err := os.WriteFile(filepath.Join(docsDir, "guide.md"), []byte("Install steps for local rag.\n\nUse docker compose."), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(docsDir, "guide.md"), []byte("Install steps for rag-search-mcp.\n\nUse docker compose."), 0o644); err != nil {
 		t.Fatalf("write docs file: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(codeDir, "main.go"), []byte("package main\n\nfunc chunkText() string { return \"ok\" }\n"), 0o644); err != nil {

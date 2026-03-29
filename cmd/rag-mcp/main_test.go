@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"local-rag/internal/config"
-	"local-rag/internal/ingest"
-	"local-rag/internal/rag"
+	"github.com/andrepester/rag-search-mcp/internal/config"
+	"github.com/andrepester/rag-search-mcp/internal/ingest"
+	"github.com/andrepester/rag-search-mcp/internal/rag"
 )
 
 type fakeRAGService struct{}

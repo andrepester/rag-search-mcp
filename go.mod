@@ -1,4 +1,4 @@
-module local-rag
+module github.com/andrepester/rag-search-mcp
 
 go 1.25.0
 
