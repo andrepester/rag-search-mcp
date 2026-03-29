@@ -2,7 +2,7 @@
 
 ## Overview
 
-`rag` is a Go-based MCP service for semantic retrieval across documentation and code. OpenCode connects through remote MCP (`type: "remote"`), and the runtime stays decoupled from the client. Project knowledge is usually split between docs, source code, and tribal context; keyword search misses intent, and manual navigation is slow during onboarding, debugging, and architecture work. This service indexes docs and code into a shared semantic store and exposes MCP tools to query both with one interface. Embeddings are generated via Ollama, chunks are stored in Chroma, and OpenCode can search by meaning instead of exact terms.
+`rag-search-mcp` is a Go-based MCP service for semantic retrieval across documentation and code. OpenCode connects through remote MCP (`type: "remote"`), and the runtime stays decoupled from the client. Project knowledge is usually split between docs, source code, and tribal context; keyword search misses intent, and manual navigation is slow during onboarding, debugging, and architecture work. This service indexes docs and code into a shared semantic store and exposes MCP tools to query both with one interface. Embeddings are generated via Ollama, chunks are stored in Chroma, and OpenCode can search by meaning instead of exact terms.
 
 ## Architecture
 
@@ -43,7 +43,7 @@ This repository ships app configuration and skills/tooling so these prompts work
 
 ## Exposed MCP Tools
 
-If the MCP server is configured as `rag`, OpenCode gets:
+With the default MCP alias `rag-search-mcp` in `opencode.json`, OpenCode gets:
 
 - `rag_search`: semantic search with `scope=all|docs|code` (default `all`)
 - `rag_get_chunk`: fetch one chunk by `chunk_id`
@@ -104,7 +104,7 @@ All Go toolchain commands run in containers through `Makefile` targets, so a loc
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "rag": {
+    "rag-search-mcp": {
       "type": "remote",
       "url": "http://127.0.0.1:8765/mcp",
       "enabled": true,
@@ -147,6 +147,6 @@ Service dependencies started by `make` targets:
 Artifacts and local resources managed during install:
 
 - `.env` is created from `.env.example` if missing
-- `opencode.json` is upserted with remote MCP config for `rag`
+- `opencode.json` is upserted with remote MCP config (default alias: `rag-search-mcp`)
 - Host paths are ensured: `data/docs`, `data/code`, `data/index`, `data/models`
 - Embedding model `${EMBED_MODEL:-nomic-embed-text}` is pulled into Ollama

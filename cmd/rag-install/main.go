@@ -52,7 +52,7 @@ func run(stdout io.Writer) error {
 	if err := bootstrap.UpsertOpenCodeConfig(absRoot, port); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(stdout, "updated opencode.json for rag MCP at http://127.0.0.1:%d/mcp\n", port); err != nil {
+	if _, err := fmt.Fprintf(stdout, "updated opencode.json for rag-search-mcp MCP alias at http://127.0.0.1:%d/mcp\n", port); err != nil {
 		return err
 	}
 

@@ -158,9 +158,9 @@ func TestUpsertOpenCodeConfigCreatesFile(t *testing.T) {
 
 	cfg := readOpenCodeConfig(t, filepath.Join(repoRoot, "opencode.json"))
 	mcp := cfg["mcp"].(map[string]any)
-	rag := mcp["rag"].(map[string]any)
-	if rag["url"] != "http://127.0.0.1:8088/mcp" {
-		t.Fatalf("url = %v, want http://127.0.0.1:8088/mcp", rag["url"])
+	service := mcp["rag-search-mcp"].(map[string]any)
+	if service["url"] != "http://127.0.0.1:8088/mcp" {
+		t.Fatalf("url = %v, want http://127.0.0.1:8088/mcp", service["url"])
 	}
 	assertFileMode(t, filepath.Join(repoRoot, "opencode.json"), 0o600)
 }
@@ -171,7 +171,7 @@ func TestUpsertOpenCodeConfigPreservesExistingKeys(t *testing.T) {
 	  "custom": {"keep": true},
 	  "mcp": {
 	    "github": {"type": "local", "enabled": true},
-	    "rag": {"type": "remote", "url": "http://127.0.0.1:1111/mcp", "enabled": false, "timeout": 1}
+	    "rag-search-mcp": {"type": "remote", "url": "http://127.0.0.1:1111/mcp", "enabled": false, "timeout": 1}
 	  }
 	}`
 	if err := os.WriteFile(filepath.Join(repoRoot, "opencode.json"), []byte(original), 0o644); err != nil {
@@ -191,12 +191,12 @@ func TestUpsertOpenCodeConfigPreservesExistingKeys(t *testing.T) {
 	if _, ok := mcp["github"]; !ok {
 		t.Fatal("existing mcp.github key was not preserved")
 	}
-	rag := mcp["rag"].(map[string]any)
-	if rag["enabled"] != true {
-		t.Fatalf("rag.enabled = %v, want true", rag["enabled"])
+	service := mcp["rag-search-mcp"].(map[string]any)
+	if service["enabled"] != true {
+		t.Fatalf("rag-search-mcp.enabled = %v, want true", service["enabled"])
 	}
-	if rag["url"] != "http://127.0.0.1:8765/mcp" {
-		t.Fatalf("rag.url = %v, want updated url", rag["url"])
+	if service["url"] != "http://127.0.0.1:8765/mcp" {
+		t.Fatalf("rag-search-mcp.url = %v, want updated url", service["url"])
 	}
 	assertFileMode(t, filepath.Join(repoRoot, "opencode.json"), 0o600)
 }
