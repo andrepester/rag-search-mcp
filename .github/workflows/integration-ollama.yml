@@ -1,6 +1,8 @@
 name: integration-ollama
 
 on:
+  pull_request:
+  push:
   workflow_dispatch:
   schedule:
     - cron: "53 2 * * 6"
@@ -20,14 +22,6 @@ jobs:
       - name: Start Ollama container
         run: docker run -d --name ollama -p 11434:11434 ollama/ollama:latest
 
-      - name: Install Ollama CLI shim
-        run: |
-          sudo tee /usr/local/bin/ollama >/dev/null <<'EOF'
-          #!/usr/bin/env bash
-          exec docker exec ollama ollama "$@"
-          EOF
-          sudo chmod +x /usr/local/bin/ollama
-
       - name: Wait for Ollama API
         run: |
           for i in $(seq 1 60); do
@@ -42,11 +36,37 @@ jobs:
       - name: Pull embedding model
         run: docker exec ollama ollama pull nomic-embed-text
 
-      - name: Install project dependencies (skip local Ollama setup)
-        run: make install-no-ollama INSTALL_ARGS="--yes"
+      - name: Start MCP stack
+        env:
+          OLLAMA_HOST: http://host.docker.internal:11434
+          HOST_DOCS_DIR: ./docs
+          HOST_CODE_DIR: ./.empty-code
+        run: docker compose up -d --build
 
-      - name: Reindex
-        run: make reindex
+      - name: Wait for MCP health endpoint
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "MCP health endpoint not ready" >&2
+          docker compose logs rag-mcp >&2 || true
+          exit 1
 
-      - name: Run doctor
-        run: make doctor
+      - name: Reindex mounted sources
+        env:
+          OLLAMA_HOST: http://host.docker.internal:11434
+        run: docker compose run --rm --entrypoint /app/rag-index rag-mcp
+
+      - name: Smoke check MCP endpoint
+        run: curl -fsS http://127.0.0.1:8080/healthz
+
+      - name: Print service logs
+        if: always()
+        run: docker compose logs --no-color
+
+      - name: Shutdown stack
+        if: always()
+        run: docker compose down -v
