@@ -5,9 +5,11 @@ import (
 	"strings"
 )
 
+var multiNewlineRE = regexp.MustCompile(`\n{3,}`)
+
 func CleanText(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
-	text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
+	text = multiNewlineRE.ReplaceAllString(text, "\n\n")
 	return strings.TrimSpace(text)
 }
 
