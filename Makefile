@@ -31,7 +31,7 @@ build:
 	$(GO_RUN) sh -lc '$(GO_BIN) build ./cmd/rag-mcp && $(GO_BIN) build ./cmd/rag-index'
 
 run:
-	docker compose up --build
+	docker compose up -d --build
 
 reindex:
 	docker compose run --rm --entrypoint /app/rag-index rag-mcp

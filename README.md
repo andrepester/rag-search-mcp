@@ -129,6 +129,8 @@ Start service:
 make run
 ```
 
+`make run` starts the Compose stack in detached mode.
+
 Run reindex:
 
 ```bash
