@@ -147,7 +147,7 @@ GitHub Actions run:
 - `ci-fast`: `gofmt` verification, `go vet`, `go test`, `go build`, `docker compose config`
 - `security-baseline`: gitleaks + `govulncheck`
 - `integration-ollama`: Ollama container + Compose stack + reindex smoke test
-- `supply-chain`: CycloneDX SBOM artifact, license allowlist gate, Trivy filesystem + image CVE scan
+- `supply-chain`: CycloneDX SBOM artifacts, license allowlist gate, Syft + Grype filesystem and image CVE scans
 
 ## Dependency automation
 
