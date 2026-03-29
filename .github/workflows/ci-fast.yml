@@ -15,39 +15,44 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
         with:
-          python-version: "3.12"
+          go-version: "1.25.x"
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          cache-local-path: ~/.cache/uv
-          enable-cache: true
+      - name: Verify formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go files are not formatted:" >&2
+            gofmt -l . >&2
+            exit 1
+          fi
 
-      - name: Sync dependencies
-        run: uv sync --directory "$GITHUB_WORKSPACE" --frozen --group dev
+      - name: Vet
+        run: go vet ./...
 
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Test with coverage
+        env:
+          COVERAGE_MIN: "60"
+        run: make test-cover COVERAGE_MIN=${COVERAGE_MIN}
 
-      - name: Lint shell scripts
-        run: shellcheck lib/*.sh
+      - name: Build
+        run: |
+          go build ./cmd/rag-mcp
+          go build ./cmd/rag-index
+          go build ./cmd/rag-install
 
-      - name: Compile Python files
-        run: uv run --directory "$GITHUB_WORKSPACE" python -m py_compile lib/server.py lib/ingest.py
+      - name: Bootstrap config smoke test
+        run: |
+          rm -f .env opencode.json opencode.json.invalid
+          go run ./cmd/rag-install --repo-root .
+          test -f .env
+          test -f opencode.json
 
-      - name: Lint Python files
-        run: uv run --directory "$GITHUB_WORKSPACE" ruff check lib tests
+      - name: Run tests in Docker build stage
+        run: docker build -f docker/Dockerfile --target test -t local-rag-test .
 
-      - name: Type-check Python files
-        run: uv run --directory "$GITHUB_WORKSPACE" mypy
-
-      - name: Run unit tests
-        run: uv run --directory "$GITHUB_WORKSPACE" pytest -q
-
-      - name: Validate lockfile
-        run: uv lock --directory "$GITHUB_WORKSPACE" --check
+      - name: Validate Docker Compose
+        run: docker compose --project-directory . -f docker/docker-compose.yml config

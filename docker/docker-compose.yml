@@ -1,0 +1,58 @@
+services:
+  ollama:
+    image: ollama/ollama:0.5.7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  chroma:
+    image: chromadb/chroma:1.3.5
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - timeout 2 bash -c '</dev/tcp/127.0.0.1/8000'
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    volumes:
+      - chroma_data:/data
+
+  rag-mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_started
+      chroma:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${RAG_HTTP_PORT:-8765}:8765"
+    environment:
+      RAG_HTTP_HOST: 0.0.0.0
+      RAG_HTTP_PORT: 8765
+      RAG_DOCS_DIR: /data/docs
+      RAG_CODE_DIR: /data/code
+      RAG_ENABLE_CODE_INGEST: ${RAG_ENABLE_CODE_INGEST:-true}
+      RAG_CHROMA_URL: http://chroma:8000
+      RAG_CHROMA_TENANT: ${RAG_CHROMA_TENANT:-default_tenant}
+      RAG_CHROMA_DATABASE: ${RAG_CHROMA_DATABASE:-default_database}
+      RAG_COLLECTION_NAME: ${RAG_COLLECTION_NAME:-rag}
+      RAG_SCOPE_DEFAULT: ${RAG_SCOPE_DEFAULT:-all}
+      RAG_CHUNK_SIZE: ${RAG_CHUNK_SIZE:-1200}
+      RAG_CHUNK_OVERLAP: ${RAG_CHUNK_OVERLAP:-200}
+      RAG_MAX_TOP_K: ${RAG_MAX_TOP_K:-50}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
+      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+    volumes:
+      - ${HOST_DOCS_DIR:-./data/docs}:/data/docs:ro
+      - ${HOST_CODE_DIR:-./data/code}:/data/code:ro
+
+volumes:
+  chroma_data:
+  ollama_data:

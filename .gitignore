@@ -4,24 +4,27 @@ opencode.json.*
 index/*
 !index/.gitkeep
 
-# Python
+# Local virtual envs and caches
 .venv/
 __pycache__/
 *.pyc
 
-# Tool caches
-.ruff_cache/
-.pytest_cache/
-.mypy_cache/
-
-# Coverage
-.coverage
-htmlcov/
+# Go test coverage
+coverage.out
 
 # OS clutter
 .DS_Store
 
+# Go build artifacts
+/rag-mcp
+/rag-index
+
 # Private local docs (keep test file tracked)
-docs/**
-!docs/
-!docs/rag-test.md
+data/docs/**
+!data/docs/
+!data/docs/rag-test.md
+
+# Local code mount content (keep directory placeholder tracked)
+data/code/**
+!data/code/
+!data/code/.gitkeep
