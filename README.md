@@ -1,14 +1,8 @@
 # RAG MCP Service (Go + Chroma + Ollama)
 
-This repository provides a Go-first MCP service named `rag` for semantic
-retrieval over documentation and code.
+## Overview
 
-- OpenCode connects via remote MCP (`type: "remote"`)
-- Runtime can run local, in Docker, or elsewhere on the network/cloud
-- One Docker Compose file configures docs and code through mounts
-- Default local setup runs Ollama, Chroma, and rag-mcp in one Compose project
-- Default query scope is `all`
-- Local binary default bind is loopback (`127.0.0.1`) for safer defaults
+`rag` is a Go-based MCP service for semantic retrieval across documentation and code. OpenCode connects through remote MCP (`type: "remote"`), and the runtime stays decoupled from the client. Project knowledge is usually split between docs, source code, and tribal context; keyword search misses intent, and manual navigation is slow during onboarding, debugging, and architecture work. This service indexes docs and code into a shared semantic store and exposes MCP tools to query both with one interface. Embeddings are generated via Ollama, chunks are stored in Chroma, and OpenCode can search by meaning instead of exact terms.
 
 ## Architecture
 
@@ -23,67 +17,68 @@ flowchart TD
     G --> E
 ```
 
-## Tools exposed to OpenCode
-
-If the MCP server is configured as `rag`, OpenCode sees these tools:
-
-- `rag_search` - semantic search (`scope=all|docs|code`, default `all`)
-- `rag_get_chunk` - fetch one chunk by `chunk_id`
-- `rag_list_sources` - list indexed source paths
-- `rag_reindex` - rebuild index from mounted sources
-
-## Scope behavior
-
-- `scope=all` (default): searches docs and code
-- `scope=docs`: searches docs only
-- `scope=code`: searches code only
-- If `data/code` is empty (or code ingest is disabled), `scope=all` behaves like docs-only
-
-## Docker Compose (single file)
-
-Compose file path: `docker/docker-compose.yml`
-
-- `HOST_DOCS_DIR` mount is required (defaults to `./data/docs`)
-- `HOST_CODE_DIR` mount is required (defaults to `./data/code`, can be empty)
-- `ollama` service is included in the same Compose stack
-- Chroma persistence is stored on the host at `./data/index` via bind mount
-- Ollama home (`/root/.ollama`) is persisted in a Docker named volume (`ollama_home`)
-- Ollama model artifacts (`/root/.ollama/models`) are stored on the host at `./data/models`
-- Published container ports are bound to `127.0.0.1` (localhost-only)
-- Compose sets `RAG_HTTP_HOST=0.0.0.0` inside container so host port publishing still works
-
-### One-command local install
+## Installation & Quickstart
 
 ```bash
 make install
+make run
 ```
 
-`make install` creates `.env` from `.env.example` (if missing), upserts local
-`opencode.json`, ensures host mount directories (`docs`, `code`, `index`, `models`) exist,
-starts the Compose stack, pulls the embedding model in the Ollama container,
-runs reindexing, and verifies indexed data.
+`make install` bootstraps local config, prepares runtime data paths, starts the stack, pulls the embedding model, rebuilds the index, and verifies indexed data.
 
-### Start service
+Reindex after changing mounted docs/code:
 
 ```bash
-docker compose --project-directory . -f docker/docker-compose.yml up -d --build
+make reindex
 ```
 
-### Reindex mounted data
+## Example prompts
 
-```bash
-docker compose --project-directory . -f docker/docker-compose.yml run --rm --entrypoint /app/rag-index rag-mcp
-```
+This repository ships app configuration and skills/tooling so these prompts work directly in OpenCode.
 
-You can also trigger reindexing from OpenCode via `rag_reindex`.
+- `Use rag_search with scope docs to explain installation.`
+- `Use rag_search with scope code to find chunking logic.`
+- `Use rag_search with scope all and summarize architecture from docs and code.`
+- `Call rag_list_sources with scope all.`
 
-### Stop service
+## Exposed MCP Tools
 
-```bash
-docker compose --project-directory . -f docker/docker-compose.yml down
-```
+If the MCP server is configured as `rag`, OpenCode gets:
 
-## Environment variables
+- `rag_search`: semantic search with `scope=all|docs|code` (default `all`)
+- `rag_get_chunk`: fetch one chunk by `chunk_id`
+- `rag_list_sources`: list indexed source paths
+- `rag_reindex`: rebuild index from mounted sources
+
+Scope behavior:
+
+- `all` searches docs and code
+- `docs` searches docs only
+- `code` searches code only
+- If `data/code` is empty or code ingest is disabled, `all` behaves like docs-only
+
+## Make Targets
+
+| Target | Purpose |
+|---|---|
+| `make install` | Bootstrap config, start runtime stack, pull model, reindex, verify data |
+| `make doctor` | Run quality checks plus index verification |
+| `make mod` | Tidy Go modules |
+| `make test` | Run Go tests in a container |
+| `make test-cover` | Run tests with coverage gate |
+| `make build` | Containerized compile check (`go build ./...`) |
+| `make run` | Start runtime stack in detached mode |
+| `make reindex` | Rebuild semantic index from mounted sources |
+| `make compose-up` | Start runtime stack |
+| `make compose-down` | Stop runtime stack |
+| `make compose-logs` | Stream runtime logs |
+| `make compose-validate` | Validate runtime stack configuration |
+
+All Go toolchain commands run in containers through `Makefile` targets, so a local Go installation is not required for normal development flow.
+
+## Configuration
+
+### Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
@@ -101,9 +96,9 @@ docker compose --project-directory . -f docker/docker-compose.yml down
 | `RAG_CHUNK_OVERLAP` | `200` | Chunk overlap in chars |
 | `RAG_MAX_TOP_K` | `50` | Upper bound for search `top_k` |
 
-## OpenCode configuration
+### OpenCode configuration
 
-`opencode.json` uses remote MCP and has no Docker command dependency:
+`opencode.json` uses remote MCP:
 
 ```json
 {
@@ -119,60 +114,39 @@ docker compose --project-directory . -f docker/docker-compose.yml down
 }
 ```
 
-Run the runtime however you want (Compose, Kubernetes, VM, localhost binary)
-as long as the MCP URL is reachable.
+Run the runtime however you want (container stack, Kubernetes, VM, localhost binary) as long as the MCP URL is reachable.
 
 Note: `opencode.json` in this repository is local/machine-specific and ignored by git.
 
-## Example prompts
+## Actions
 
-- `Use rag_search with scope docs to explain installation.`
-- `Use rag_search with scope code to find chunking logic.`
-- `Use rag_search with scope all and summarize architecture from docs and code.`
-- `Call rag_list_sources with scope all.`
+GitHub Actions workflows:
 
-## Local development (container-first)
+- `ci-fast`: formatting check, `go vet`, coverage-gated tests, build checks, runtime config validation
+- `security-baseline`: gitleaks and `govulncheck`
+- `integration-ollama`: full runtime startup via `make install` and reindex smoke check
+- `supply-chain`: SBOM generation, license allowlist gate, filesystem/image vulnerability scans
 
-```bash
-make install
-make mod
-make test
-make build
-make doctor
-```
+Dependency automation:
 
-`make build` performs a containerized compile check (`go build ./...`) and does not
-write local binaries.
+- Dependabot updates for `gomod`, `github-actions`, and `docker` via `.github/dependabot.yml`
 
-Start service:
+## Dependencies
 
-```bash
-make run
-```
+Runtime dependencies:
 
-`make run` starts the Compose stack in detached mode.
+- Docker Engine + Docker Compose plugin
+- GNU Make
 
-Run reindex:
+Service dependencies started by `make` targets:
 
-```bash
-make reindex
-```
+- `ollama` for embedding generation
+- `chroma` for vector storage
+- `rag-mcp` for MCP HTTP endpoint
 
-All Go toolchain commands run inside containers via `Makefile` targets. No local Go
-installation is required.
+Artifacts and local resources managed during install:
 
-`make doctor` also starts the Compose stack, runs reindexing, and verifies that at
-least one document chunk is indexed in Chroma.
-
-## CI checks
-
-GitHub Actions run:
-
-- `ci-fast`: `gofmt` verification, `go vet`, containerized `go test` with coverage gate, `go build`, `docker compose config`
-- `security-baseline`: gitleaks + `govulncheck`
-- `integration-ollama`: full `make install` stack startup (Ollama + Chroma + rag-mcp) + reindex smoke test
-- `supply-chain`: CycloneDX SBOM artifacts, license allowlist gate, Syft + Grype filesystem and image CVE scans
-
-## Dependency automation
-
-- Dependabot is enabled for `gomod`, `github-actions`, and `docker` updates via `.github/dependabot.yml`.
+- `.env` is created from `.env.example` if missing
+- `opencode.json` is upserted with remote MCP config for `rag`
+- Host paths are ensured: `data/docs`, `data/code`, `data/index`, `data/models`
+- Embedding model `${EMBED_MODEL:-nomic-embed-text}` is pulled into Ollama
