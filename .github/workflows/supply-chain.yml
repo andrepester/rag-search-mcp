@@ -1,0 +1,141 @@
+name: supply-chain
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "31 3 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  sbom-and-licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
+        with:
+          go-version: "1.25.x"
+
+      - name: Install CycloneDX Go generator
+        run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0
+
+      - name: Generate Go SBOM (CycloneDX)
+        run: cyclonedx-gomod mod -json -licenses -output sbom-go.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: sbom-go-cyclonedx
+          path: sbom-go.cdx.json
+
+      - name: Install go-licenses
+        run: go install github.com/google/go-licenses@v1.6.0
+
+      - name: Export dependency licenses
+        run: go-licenses report ./... > licenses.csv
+
+      - name: Enforce license allowlist
+        run: |
+          set -euo pipefail
+          disallowed=0
+          while IFS=, read -r module license_url license_id; do
+            if [ -z "${module}" ]; then
+              continue
+            fi
+            case "${license_id}" in
+              MIT|BSD-2-Clause|BSD-3-Clause|Apache-2.0|ISC|MPL-2.0)
+                ;;
+              *)
+                echo "Disallowed or unknown license: ${module} (${license_id})"
+                disallowed=1
+                ;;
+            esac
+          done < licenses.csv
+
+          if [ "${disallowed}" -ne 0 ]; then
+            echo "License policy check failed"
+            exit 1
+          fi
+
+      - name: Upload license report artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: go-licenses-report
+          path: licenses.csv
+
+  vulnerability-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install Syft
+        run: |
+          set -euo pipefail
+          tmpdir=$(mktemp -d)
+          trap 'rm -rf "${tmpdir}"' EXIT
+          cd "${tmpdir}"
+          SYFT_VERSION="1.22.0"
+          SYFT_TARBALL="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors -o "${SYFT_TARBALL}" "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/${SYFT_TARBALL}"
+          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors -o syft_checksums.txt "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt"
+          grep " ${SYFT_TARBALL}$" syft_checksums.txt | sha256sum --check --status
+          tar -xzf "${SYFT_TARBALL}" syft
+          sudo install -m 0755 syft /usr/local/bin/syft
+          syft version
+
+      - name: Install Grype
+        run: |
+          set -euo pipefail
+          tmpdir=$(mktemp -d)
+          trap 'rm -rf "${tmpdir}"' EXIT
+          cd "${tmpdir}"
+          GRYPE_VERSION="0.87.0"
+          GRYPE_TARBALL="grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors -o "${GRYPE_TARBALL}" "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/${GRYPE_TARBALL}"
+          curl -sSfL --retry 5 --retry-delay 2 --retry-all-errors -o grype_checksums.txt "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_checksums.txt"
+          grep " ${GRYPE_TARBALL}$" grype_checksums.txt | sha256sum --check --status
+          tar -xzf "${GRYPE_TARBALL}" grype
+          sudo install -m 0755 grype /usr/local/bin/grype
+          grype version
+
+      - name: Build runtime image
+        run: docker build -f docker/Dockerfile -t local-rag-scan:ci .
+
+      - name: Generate filesystem SBOM (Syft)
+        run: syft dir:. -o cyclonedx-json=sbom-fs.cdx.json
+
+      - name: Upload filesystem SBOM artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: sbom-fs-cyclonedx
+          path: sbom-fs.cdx.json
+
+      - name: Grype filesystem scan (SARIF)
+        run: grype sbom:sbom-fs.cdx.json --only-fixed --fail-on high -o sarif > grype-fs.sarif
+
+      - name: Upload filesystem SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4
+        with:
+          sarif_file: grype-fs.sarif
+
+      - name: Generate image SBOM (Syft)
+        run: syft local-rag-scan:ci -o cyclonedx-json=sbom-image.cdx.json
+
+      - name: Upload image SBOM artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: sbom-image-cyclonedx
+          path: sbom-image.cdx.json
+
+      - name: Grype image scan
+        run: grype sbom:sbom-image.cdx.json --only-fixed --fail-on high -o table

@@ -18,58 +18,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0
 
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  dependency-audit:
+  govulncheck:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
         with:
-          python-version: "3.12"
+          go-version: "1.25.x"
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          cache-local-path: ~/.cache/uv
-          enable-cache: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
-      - name: Export locked requirements
-        run: uv export --directory "$GITHUB_WORKSPACE" --frozen --format requirements-txt --no-hashes > requirements-ci.txt
-
-      - name: Explain temporary audit ignore
-        env:
-          PIP_AUDIT_IGNORE: CVE-2026-4539
-          PIP_AUDIT_IGNORE_UNTIL: 2026-06-30
-        run: |
-          if [ -n "${PIP_AUDIT_IGNORE:-}" ] && [ -n "${PIP_AUDIT_IGNORE_UNTIL:-}" ]; then
-            today_epoch="$(date -u +%s)"
-            until_epoch="$(date -u -j -f %F "${PIP_AUDIT_IGNORE_UNTIL}" +%s 2>/dev/null || date -u -d "${PIP_AUDIT_IGNORE_UNTIL}" +%s)"
-            if [ "$today_epoch" -gt "$until_epoch" ]; then
-              printf '%s\n' "pip-audit ignore ${PIP_AUDIT_IGNORE} expired on ${PIP_AUDIT_IGNORE_UNTIL}; remove ignore or extend with justification." >&2
-              exit 1
-            fi
-          fi
-
-          printf '%s\n' "Ignoring CVE-2026-4539 temporarily due upstream triage; remove once fixed upstream and lockfile updated."
-
-      - name: Audit dependencies
-        env:
-          PIP_AUDIT_IGNORE: CVE-2026-4539
-          PIP_AUDIT_IGNORE_UNTIL: 2026-06-30
-        run: |
-          if [ -n "${PIP_AUDIT_IGNORE:-}" ]; then
-            uvx --from pip-audit pip-audit -r requirements-ci.txt --ignore-vuln "$PIP_AUDIT_IGNORE"
-          else
-            uvx --from pip-audit pip-audit -r requirements-ci.txt
-          fi
+      - name: Run govulncheck
+        run: govulncheck ./...

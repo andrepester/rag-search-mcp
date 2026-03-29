@@ -1,82 +1,80 @@
 .DEFAULT_GOAL := help
 
-INSTALL_SH = ./lib/install.sh
-REINDEX_SH = ./lib/reindex.sh
-DOCTOR_SH = ./lib/doctor.sh
-INSTALL_ARGS =
+.PHONY: help install install-bootstrap install-wait-ollama install-model doctor doctor-index doctor-verify-index mod test test-cover build run reindex compose-up compose-down compose-logs compose-validate
 
-.PHONY: help install setup install-help install-dry-run install-yes install-no-ollama install-no-config post-install update upgrade upgrade-package reindex doctor
+GO_IMAGE ?= golang:1.25-alpine
+GO_BIN ?= /usr/local/go/bin/go
+GO_RUN = docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -v "$(PWD):/workspace" -w /workspace $(GO_IMAGE)
+COVERAGE_MIN ?= 60
+COMPOSE = docker compose --project-directory . -f docker/docker-compose.yml
 
 help:
 	@printf '%s\n' 'Available targets:'
-	@printf '  %-20s %s\n' 'make help' 'Show this help'
-	@printf '  %-20s %s\n' 'make install' 'Run the installer'
-	@printf '  %-20s %s\n' 'make setup' 'Alias for install'
-	@printf '  %-20s %s\n' 'make install-help' 'Show installer options'
-	@printf '  %-20s %s\n' 'make install-dry-run' 'Preview installer actions'
-	@printf '  %-20s %s\n' 'make install-yes' 'Run installer without prompts'
-	@printf '  %-20s %s\n' 'make install-no-ollama' 'Skip ollama install/start/model pull'
-	@printf '  %-20s %s\n' 'make install-no-config' 'Skip opencode.json generation'
-	@printf '  %-20s %s\n' 'make update' 'Sync local Python deps from uv.lock'
-	@printf '  %-20s %s\n' 'make upgrade' 'Upgrade Python deps and refresh uv.lock'
-	@printf '  %-20s %s\n' 'make upgrade-package PACKAGE=<name>' 'Upgrade one dependency and refresh uv.lock'
-	@printf '  %-20s %s\n' 'make reindex' 'Rebuild the local vector index'
-	@printf '  %-20s %s\n' 'make doctor' 'Run health checks'
-	@printf '%s\n' ''
-	@printf '%s\n' 'Pass installer options through INSTALL_ARGS:'
-	@printf '  %s\n' 'make install INSTALL_ARGS="--yes --skip-ollama"'
+	@printf '  %-20s %s\n' 'make install' 'Create local config, start stack, pull model, and reindex'
+	@printf '  %-20s %s\n' 'make doctor' 'Run tests/build/compose checks and verify indexed data'
+	@printf '  %-20s %s\n' 'make mod' 'Download and tidy Go modules'
+	@printf '  %-20s %s\n' 'make test' 'Run Go tests in a Go container'
+	@printf '  %-20s %s\n' 'make test-cover' 'Run Go tests with coverage gate in container'
+	@printf '  %-20s %s\n' 'make build' 'Run containerized Go compile check (no binaries)'
+	@printf '  %-20s %s\n' 'make run' 'Run MCP server via Docker Compose'
+	@printf '  %-20s %s\n' 'make reindex' 'Run index build in the service container'
+	@printf '  %-20s %s\n' 'make compose-up' 'Start compose stack'
+	@printf '  %-20s %s\n' 'make compose-down' 'Stop compose stack'
+	@printf '  %-20s %s\n' 'make compose-logs' 'Tail compose logs'
+	@printf '  %-20s %s\n' 'make compose-validate' 'Validate Docker Compose config'
 
-install:
-	$(INSTALL_SH) $(INSTALL_ARGS)
-	@$(MAKE) post-install
+install: install-bootstrap run install-wait-ollama install-model reindex doctor-verify-index
 
-setup: install
+install-bootstrap:
+	$(GO_RUN) $(GO_BIN) run ./cmd/rag-install --repo-root /workspace
 
-install-help:
-	$(INSTALL_SH) --help
+install-wait-ollama:
+	@for i in $$(seq 1 60); do \
+		if $(COMPOSE) exec -T ollama ollama list >/dev/null 2>&1; then \
+			exit 0; \
+		fi; \
+		sleep 2; \
+	done; \
+	printf '%s\n' 'ollama did not become ready in time' >&2; \
+	exit 1
 
-install-dry-run:
-	$(INSTALL_SH) --dry-run
+install-model:
+	@model="$${EMBED_MODEL:-nomic-embed-text}"; \
+	$(COMPOSE) exec -T ollama ollama pull "$$model"
 
-install-yes:
-	$(INSTALL_SH) --yes
-	@$(MAKE) post-install
+doctor: test build compose-validate doctor-index
 
-install-no-ollama:
-	$(INSTALL_SH) --skip-ollama
-	@$(MAKE) post-install
+doctor-index: run reindex doctor-verify-index
 
-install-no-config:
-	$(INSTALL_SH) --skip-config
-	@$(MAKE) post-install
+doctor-verify-index:
+	$(COMPOSE) exec -T rag-mcp sh -lc 'set -eu; tenant="$${RAG_CHROMA_TENANT:-default_tenant}"; database="$${RAG_CHROMA_DATABASE:-default_database}"; collection="$${RAG_COLLECTION_NAME:-rag}"; base="http://chroma:8000/api/v2/tenants/$$tenant/databases/$$database"; col_payload="$$(printf "{\"name\":\"%s\",\"get_or_create\":true,\"metadata\":{\"hnsw:space\":\"cosine\"}}" "$$collection")"; col="$$(printf "%s" "$$col_payload" | wget -qO- --header "Content-Type: application/json" --post-file=- "$$base/collections")"; cid="$$(printf "%s" "$$col" | sed -n "s/.*\"id\":\"\([^\"]*\)\".*/\1/p")"; test -n "$$cid"; get="$$(printf "%s" "{\"limit\":1,\"offset\":0,\"include\":[\"metadatas\"]}" | wget -qO- --header "Content-Type: application/json" --post-file=- "$$base/collections/$$cid/get")"; printf "%s" "$$get" | grep -Eq "\"ids\":\[[^]]*\"[^\"]+\"" && echo "doctor: indexed data present in Chroma"'
 
-post-install:
-	@printf '%s\n' ''
-	@printf '%s\n' 'Next steps:'
-	@printf '  %s\n' '1. Add documents to your configured docs directory (.env defaults to docs/)'
-	@printf '  %s\n' '2. Run: make reindex'
-	@printf '  %s\n' '3. Run: make doctor'
-	@printf '  %s\n' '4. Start OpenCode in this directory'
-	@printf '  %s\n' '5. Test: ask OpenCode to use local_rag_search_docs'
-	@printf '  %s\n' '   If you used --skip-ollama or --skip-config, finish that setup first.'
+mod:
+	$(GO_RUN) $(GO_BIN) mod tidy
 
-update:
-	@command -v uv >/dev/null 2>&1 || { printf '%s\n' '[error] uv not found on PATH. Run make install first.' >&2; exit 1; }
-	uv sync --directory "$(CURDIR)"
+test:
+	$(GO_RUN) $(GO_BIN) test -count=1 ./...
 
-upgrade:
-	@command -v uv >/dev/null 2>&1 || { printf '%s\n' '[error] uv not found on PATH. Run make install first.' >&2; exit 1; }
-	uv lock --directory "$(CURDIR)" --upgrade
-	uv sync --directory "$(CURDIR)"
+test-cover:
+	$(GO_RUN) sh -lc "set -eu; $(GO_BIN) test -count=1 -covermode=atomic -coverprofile=coverage.out ./...; $(GO_BIN) tool cover -func=coverage.out | tee coverage.txt; awk -v min=\"$(COVERAGE_MIN)\" '/^total:/ { gsub(/%/, \"\", \$$3); if ((\$$3 + 0) < (min + 0)) { printf(\"coverage %.1f%% is below minimum %.1f%%\\n\", \$$3, min); exit 1 }; found=1 } END { if (!found) { print \"coverage total not found\"; exit 1 } }' coverage.txt"
 
-upgrade-package:
-	@command -v uv >/dev/null 2>&1 || { printf '%s\n' '[error] uv not found on PATH. Run make install first.' >&2; exit 1; }
-	@test -n "$(PACKAGE)" || { printf '%s\n' '[error] PACKAGE is required (example: make upgrade-package PACKAGE=chromadb)' >&2; exit 1; }
-	uv lock --directory "$(CURDIR)" --upgrade-package "$(PACKAGE)"
-	uv sync --directory "$(CURDIR)"
+build:
+	$(GO_RUN) $(GO_BIN) build ./...
+
+run:
+	$(COMPOSE) up -d --build
 
 reindex:
-	$(REINDEX_SH)
+	$(COMPOSE) run --rm --entrypoint /app/rag-index rag-mcp
 
-doctor:
-	$(DOCTOR_SH)
+compose-up:
+	$(COMPOSE) up -d --build
+
+compose-down:
+	$(COMPOSE) down
+
+compose-logs:
+	$(COMPOSE) logs -f
+
+compose-validate:
+	$(COMPOSE) config
