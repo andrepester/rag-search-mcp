@@ -16,6 +16,7 @@ const (
 	envFileName     = ".env"
 	envExampleName  = ".env.example"
 	opencodeName    = "opencode.json"
+	mcpAlias        = "rag-search-mcp"
 	hostIndexDir    = "./data/index"
 	hostModelsDir   = "./data/models"
 	hostDocsDir     = "./data/docs"
@@ -217,7 +218,7 @@ func UpsertOpenCodeConfig(repoRoot string, port int) error {
 	if !ok {
 		mcp = map[string]any{}
 	}
-	mcp["rag"] = map[string]any{
+	mcp[mcpAlias] = map[string]any{
 		"type":    "remote",
 		"url":     fmt.Sprintf("http://127.0.0.1:%d/mcp", port),
 		"enabled": true,
