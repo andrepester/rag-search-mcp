@@ -47,7 +47,7 @@ Compose file path: `docker/docker-compose.yml`
 - `HOST_CODE_DIR` mount is required (defaults to `./data/code`, can be empty)
 - `ollama` service is included in the same Compose stack
 - Chroma persistence is stored on the host at `./data/index` via bind mount
-- Ollama persistence is managed by the `ollama_data` volume
+- Ollama persistence is stored on the host at `./data/models` via bind mount
 - Published container ports are bound to `127.0.0.1` (localhost-only)
 - Compose sets `RAG_HTTP_HOST=0.0.0.0` inside container so host port publishing still works
 
@@ -58,7 +58,7 @@ make install
 ```
 
 `make install` creates `.env` from `.env.example` (if missing), upserts local
-`opencode.json`, ensures host mount directories (`docs`, `code`, `index`) exist,
+`opencode.json`, ensures host mount directories (`docs`, `code`, `index`, `models`) exist,
 starts the Compose stack, pulls the embedding model in the Ollama container,
 runs reindexing, and verifies indexed data.
 

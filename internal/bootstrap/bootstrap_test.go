@@ -110,6 +110,7 @@ func TestEnsureHostDataDirsCreatesDefaults(t *testing.T) {
 		filepath.Join(repoRoot, "data", "docs"),
 		filepath.Join(repoRoot, "data", "code"),
 		filepath.Join(repoRoot, "data", "index"),
+		filepath.Join(repoRoot, "data", "models"),
 	} {
 		info, err := os.Stat(dir)
 		if err != nil {
@@ -136,6 +137,7 @@ func TestEnsureHostDataDirsUsesConfiguredDocAndCodePaths(t *testing.T) {
 		filepath.Join(repoRoot, "custom", "docs"),
 		filepath.Join(repoRoot, "custom", "code"),
 		filepath.Join(repoRoot, "data", "index"),
+		filepath.Join(repoRoot, "data", "models"),
 	} {
 		info, err := os.Stat(dir)
 		if err != nil {

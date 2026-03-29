@@ -31,3 +31,8 @@ data/code/**
 data/index/**
 !data/index/
 !data/index/.gitkeep
+
+# Local model mount content (keep directory placeholder tracked)
+data/models/**
+!data/models/
+!data/models/.gitkeep

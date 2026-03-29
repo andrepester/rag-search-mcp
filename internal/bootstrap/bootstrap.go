@@ -17,6 +17,7 @@ const (
 	envExampleName  = ".env.example"
 	opencodeName    = "opencode.json"
 	hostIndexDir    = "./data/index"
+	hostModelsDir   = "./data/models"
 	hostDocsDir     = "./data/docs"
 	hostCodeDir     = "./data/code"
 )
@@ -115,8 +116,12 @@ func EnsureHostDataDirs(repoRoot string) error {
 	if err != nil {
 		return fmt.Errorf("resolve index directory: %w", err)
 	}
+	modelsDir, err := resolveHostPath(repoRoot, "", hostModelsDir)
+	if err != nil {
+		return fmt.Errorf("resolve models directory: %w", err)
+	}
 
-	for _, dir := range []string{docsDir, codeDir, indexDir} {
+	for _, dir := range []string{docsDir, codeDir, indexDir, modelsDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create directory %s: %w", dir, err)
 		}
