@@ -10,11 +10,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"local-rag/internal/config"
-	"local-rag/internal/ingest"
-	"local-rag/internal/ollama"
-	"local-rag/internal/rag"
-	"local-rag/internal/store"
+	"github.com/andrepester/rag-search-mcp/internal/config"
+	"github.com/andrepester/rag-search-mcp/internal/ingest"
+	"github.com/andrepester/rag-search-mcp/internal/ollama"
+	"github.com/andrepester/rag-search-mcp/internal/rag"
+	"github.com/andrepester/rag-search-mcp/internal/store"
 )
 
 const (
