@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -121,7 +120,7 @@ func main() {
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, nil)
-	mcpHandler := wrapMCPHandler(handler, cfg.AuthToken, defaultMaxMCPBodyBytes)
+	mcpHandler := wrapMCPHandler(handler, defaultMaxMCPBodyBytes)
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpHandler)
@@ -149,43 +148,8 @@ func main() {
 	}
 }
 
-func wrapMCPHandler(next http.Handler, authToken string, maxBodyBytes int64) http.Handler {
-	h := limitRequestBodyMiddleware(maxBodyBytes, next)
-	h = bearerAuthMiddleware(authToken, h)
-	return h
-}
-
-func bearerAuthMiddleware(authToken string, next http.Handler) http.Handler {
-	if strings.TrimSpace(authToken) == "" {
-		return next
-	}
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		token, ok := parseBearerToken(r.Header.Get("Authorization"))
-		if !ok || token != authToken {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="rag-mcp"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-func parseBearerToken(authorizationHeader string) (string, bool) {
-	parts := strings.Fields(strings.TrimSpace(authorizationHeader))
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return "", false
-	}
-	if strings.TrimSpace(parts[1]) == "" {
-		return "", false
-	}
-	return parts[1], true
+func wrapMCPHandler(next http.Handler, maxBodyBytes int64) http.Handler {
+	return limitRequestBodyMiddleware(maxBodyBytes, next)
 }
 
 func limitRequestBodyMiddleware(maxBodyBytes int64, next http.Handler) http.Handler {

@@ -11,7 +11,6 @@ import (
 type Config struct {
 	Host             string
 	Port             int
-	AuthToken        string
 	DocsDir          string
 	CodeDir          string
 	ChromaURL        string
@@ -57,7 +56,6 @@ func Load() (Config, error) {
 	cfg := Config{
 		Host:             env("RAG_HTTP_HOST", "127.0.0.1"),
 		Port:             envInt("RAG_HTTP_PORT", 8080),
-		AuthToken:        env("RAG_AUTH_TOKEN", ""),
 		DocsDir:          docsDir,
 		CodeDir:          codeDir,
 		ChromaURL:        strings.TrimRight(env("RAG_CHROMA_URL", "http://chroma:8000"), "/"),

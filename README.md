@@ -73,7 +73,6 @@ docker compose down
 |---|---|---|
 | `RAG_HTTP_HOST` | `127.0.0.1` | HTTP bind address (local default is loopback) |
 | `RAG_HTTP_PORT` | `8080` | MCP HTTP port on host |
-| `RAG_AUTH_TOKEN` | _(empty)_ | Optional bearer token required on `/mcp` endpoints (`Authorization: Bearer <token>`) |
 | `HOST_DOCS_DIR` | `./docs` | Host path mounted as docs source |
 | `HOST_CODE_DIR` | `./.empty-code` | Host path mounted as optional code source |
 | `RAG_ENABLE_CODE_INGEST` | `true` | Enable/disable code ingestion |
@@ -105,9 +104,6 @@ docker compose down
 
 Run the runtime however you want (Compose, Kubernetes, VM, localhost binary)
 as long as the MCP URL is reachable.
-
-If `RAG_AUTH_TOKEN` is set, clients must send `Authorization: Bearer <token>` for
-`/mcp` requests. `/healthz` remains unauthenticated.
 
 Note: `opencode.json` in this repository is local/machine-specific and ignored by git.
 
