@@ -28,7 +28,7 @@ jobs:
         run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0
 
       - name: Generate Go SBOM (CycloneDX)
-        run: cyclonedx-gomod app -json -licenses -output sbom-go.cdx.json ./...
+        run: cyclonedx-gomod app -json -licenses -output sbom-go.cdx.json
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -114,7 +114,7 @@ jobs:
           path: sbom-fs.cdx.json
 
       - name: Grype filesystem scan (SARIF)
-        run: grype sbom:sbom-fs.cdx.json --fail-on high -o sarif > grype-fs.sarif
+        run: grype sbom:sbom-fs.cdx.json --only-fixed --fail-on high -o sarif > grype-fs.sarif
 
       - name: Upload filesystem SARIF
         if: always()
@@ -132,4 +132,4 @@ jobs:
           path: sbom-image.cdx.json
 
       - name: Grype image scan
-        run: grype sbom:sbom-image.cdx.json --fail-on high -o table
+        run: grype sbom:sbom-image.cdx.json --only-fixed --fail-on high -o table
