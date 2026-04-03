@@ -152,7 +152,7 @@ make doctor-verify-index
 | `HOST_DOCS_DIR` | `./data/docs` | Host path mounted as docs source |
 | `HOST_CODE_DIR` | `./data/code` | Host path mounted as code source (can be empty) |
 | `HOST_INDEX_DIR` | `./data/index` | Host path mounted for Chroma index persistence |
-| `HOST_MODELS_DIR` | `./data/models` | Host path mounted for Ollama state and model persistence |
+| `HOST_MODELS_DIR` | `./data/models` | Host path mounted for Ollama model persistence (`/root/.ollama/models`) |
 | `RAG_ENABLE_CODE_INGEST` | `true` | Enable/disable code ingestion |
 | `OLLAMA_HOST` | `http://ollama:11434` | Embedding endpoint for containerized runtime |
 | `OLLAMA_PORT` | `11434` | Host port mapped to the Ollama container |
