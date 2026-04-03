@@ -3,6 +3,9 @@ opencode.json
 opencode.json.*
 .env
 AGENTS.md
+.venv/
+__pycache__/
+*.pyc
 
 # Go test coverage
 coverage.out
