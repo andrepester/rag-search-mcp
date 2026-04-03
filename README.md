@@ -102,6 +102,45 @@ Scope behavior:
 
 All Go toolchain commands run in containers through `Makefile` targets, so a local Go installation is not required for normal development flow.
 
+Docker-only Guardrails:
+
+- Standard local workflows use `make` targets only; direct local `go` execution is intentionally avoided.
+- CI workflows use the same containerized `make` targets for formatting, vetting, testing, build, bootstrap smoke tests, and Go security/supply-chain checks.
+
+## Troubleshooting & Diagnose
+
+Validate runtime configuration:
+
+```bash
+make compose-validate
+```
+
+Check service state:
+
+```bash
+docker compose --project-directory . -f docker/docker-compose.yml ps
+```
+
+Inspect runtime logs:
+
+```bash
+docker compose --project-directory . -f docker/docker-compose.yml logs rag-mcp
+docker compose --project-directory . -f docker/docker-compose.yml logs chroma
+docker compose --project-directory . -f docker/docker-compose.yml logs ollama
+```
+
+Run end-to-end health and index checks:
+
+```bash
+make doctor
+```
+
+Run index verification only:
+
+```bash
+make doctor-verify-index
+```
+
 ## Configuration
 
 ### Environment variables
@@ -142,7 +181,7 @@ All Go toolchain commands run in containers through `Makefile` targets, so a loc
 }
 ```
 
-Run the runtime however you want (container stack, Kubernetes, VM, localhost binary) as long as the MCP URL is reachable.
+This project is operated Docker-first. Use the provided container stack and `make` targets as the canonical runtime and maintenance workflow.
 
 Note: `opencode.json` in this repository is local/machine-specific and ignored by git.
 

@@ -1,9 +1,10 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install install-bootstrap install-wait-ollama install-model doctor doctor-index doctor-verify-index mod test test-cover build run reindex compose-up compose-down compose-logs compose-validate
+.PHONY: help install install-bootstrap install-wait-ollama install-model doctor doctor-index doctor-verify-index fmt-check vet mod test test-cover build bootstrap-smoke govulncheck sbom-go licenses-export run reindex compose-up compose-down compose-logs compose-validate
 
 GO_IMAGE ?= golang:1.25-alpine
 GO_BIN ?= /usr/local/go/bin/go
+GOFMT_BIN ?= /usr/local/go/bin/gofmt
 GO_RUN = docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -v "$(PWD):/workspace" -w /workspace $(GO_IMAGE)
 COVERAGE_MIN ?= 60
 COMPOSE = docker compose --project-directory . -f docker/docker-compose.yml
@@ -12,6 +13,8 @@ help:
 	@printf '%s\n' 'Available targets:'
 	@printf '  %-20s %s\n' 'make install' 'Create local config, start stack, pull model, and reindex'
 	@printf '  %-20s %s\n' 'make doctor' 'Run tests/build/compose checks and verify indexed data'
+	@printf '  %-20s %s\n' 'make fmt-check' 'Verify gofmt output in a container'
+	@printf '  %-20s %s\n' 'make vet' 'Run go vet in a container'
 	@printf '  %-20s %s\n' 'make mod' 'Download and tidy Go modules'
 	@printf '  %-20s %s\n' 'make test' 'Run Go tests in a Go container'
 	@printf '  %-20s %s\n' 'make test-cover' 'Run Go tests with coverage gate in container'
@@ -44,6 +47,12 @@ install-model:
 
 doctor: test build compose-validate doctor-index
 
+fmt-check:
+	$(GO_RUN) sh -lc 'set -eu; out="$$("$(GOFMT_BIN)" -l .)"; if [ -n "$$out" ]; then printf "%s\n" "Go files are not formatted:" >&2; printf "%s\n" "$$out" >&2; exit 1; fi'
+
+vet:
+	$(GO_RUN) $(GO_BIN) vet ./...
+
 doctor-index: run reindex doctor-verify-index
 
 doctor-verify-index:
@@ -60,6 +69,21 @@ test-cover:
 
 build:
 	$(GO_RUN) $(GO_BIN) build ./...
+
+bootstrap-smoke:
+	rm -f .env opencode.json opencode.json.invalid
+	$(MAKE) install-bootstrap
+	test -f .env
+	test -f opencode.json
+
+govulncheck:
+	$(GO_RUN) $(GO_BIN) run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+sbom-go:
+	$(GO_RUN) sh -lc 'set -eu; PATH="/usr/local/go/bin:$$PATH"; toolbin=/tmp/bin; mkdir -p "$$toolbin"; GOBIN="$$toolbin" $(GO_BIN) install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0; "$$toolbin"/cyclonedx-gomod mod -json -licenses -output sbom-go.cdx.json'
+
+licenses-export:
+	$(GO_RUN) sh -lc 'set -eu; PATH="/usr/local/go/bin:$$PATH"; toolbin=/tmp/bin; mkdir -p "$$toolbin"; GOBIN="$$toolbin" $(GO_BIN) install github.com/google/go-licenses@v1.6.0; "$$toolbin"/go-licenses report ./... > licenses.csv'
 
 run:
 	$(COMPOSE) up -d --build
