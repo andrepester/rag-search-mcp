@@ -35,22 +35,22 @@ Empfohlene Zielstruktur fuer den Betrieb mit Host-Mounts:
   main/
     docs/
     code/
-    rag-search/
+    rag-search-mcp/
 ```
 
-- `main/rag-search` enthaelt dieses Repository.
+- `main/rag-search-mcp` enthaelt dieses Repository.
 - `main/docs` wird als Dokumentationsquelle gemountet.
 - `main/code` wird als Codequelle gemountet.
 
-Fuer eine alongside-Installation (`<parent>/main/{docs,code,rag-search}`) starte `make install` in `main/rag-search` und setze die Host-Mounts auf die Nachbarordner, z. B.:
+Fuer eine alongside-Installation (`<parent>/main/{docs,code,rag-search-mcp}`) starte `make install` in `main/rag-search-mcp` und setze die Host-Mounts auf die Nachbarordner, z. B.:
 
 ```bash
 HOST_DOCS_DIR=../docs HOST_CODE_DIR=../code make install
 ```
 
-Persistente Runtime-Daten bleiben auf dem Host in `main/rag-search/data` (oder in explizit gesetzten `HOST_INDEX_DIR`/`HOST_MODELS_DIR`).
+Persistente Runtime-Daten bleiben auf dem Host in `main/rag-search-mcp/data` (oder in explizit gesetzten `HOST_INDEX_DIR`/`HOST_MODELS_DIR`).
 
-Danach kann Reindex wie gewohnt in `main/rag-search` ausgefuehrt werden.
+Danach kann Reindex wie gewohnt in `main/rag-search-mcp` ausgefuehrt werden.
 
 Reindex after changing mounted docs/code:
 
