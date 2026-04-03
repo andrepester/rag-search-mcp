@@ -19,16 +19,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: "1.25.x"
-
-      - name: Install CycloneDX Go generator
-        run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0
-
       - name: Generate Go SBOM (CycloneDX)
-        run: cyclonedx-gomod mod -json -licenses -output sbom-go.cdx.json
+        run: make sbom-go
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -36,11 +28,8 @@ jobs:
           name: sbom-go-cyclonedx
           path: sbom-go.cdx.json
 
-      - name: Install go-licenses
-        run: go install github.com/google/go-licenses@v1.6.0
-
       - name: Export dependency licenses
-        run: go-licenses report ./... > licenses.csv
+        run: make licenses-export
 
       - name: Enforce license allowlist
         run: |

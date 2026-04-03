@@ -1,8 +1,8 @@
+.opencode/*
 opencode.json
 opencode.json.*
 .env
-
-# Local virtual envs and caches
+AGENTS.md
 .venv/
 __pycache__/
 *.pyc

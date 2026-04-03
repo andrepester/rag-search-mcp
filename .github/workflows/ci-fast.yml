@@ -23,15 +23,10 @@ jobs:
           go-version: "1.25.x"
 
       - name: Verify formatting
-        run: |
-          if [ -n "$(gofmt -l .)" ]; then
-            echo "Go files are not formatted:" >&2
-            gofmt -l . >&2
-            exit 1
-          fi
+        run: make fmt-check
 
       - name: Vet
-        run: go vet ./...
+        run: make vet
 
       - name: Test with coverage
         env:
@@ -39,17 +34,10 @@ jobs:
         run: make test-cover COVERAGE_MIN=${COVERAGE_MIN}
 
       - name: Build
-        run: |
-          go build ./cmd/rag-mcp
-          go build ./cmd/rag-index
-          go build ./cmd/rag-install
+        run: make build
 
       - name: Bootstrap config smoke test
-        run: |
-          rm -f .env opencode.json opencode.json.invalid
-          go run ./cmd/rag-install --repo-root .
-          test -f .env
-          test -f opencode.json
+        run: make bootstrap-smoke
 
       - name: Run tests in Docker build stage
         run: docker build -f docker/Dockerfile --target test -t rag-search-mcp-test .

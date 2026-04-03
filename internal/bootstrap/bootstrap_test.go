@@ -122,9 +122,9 @@ func TestEnsureHostDataDirsCreatesDefaults(t *testing.T) {
 	}
 }
 
-func TestEnsureHostDataDirsUsesConfiguredDocAndCodePaths(t *testing.T) {
+func TestEnsureHostDataDirsUsesConfiguredHostPaths(t *testing.T) {
 	repoRoot := t.TempDir()
-	envContent := "HOST_DOCS_DIR=./custom/docs\nHOST_CODE_DIR=./custom/code\n"
+	envContent := "HOST_DOCS_DIR=./custom/docs\nHOST_CODE_DIR=./custom/code\nHOST_INDEX_DIR=./custom/index\nHOST_MODELS_DIR=./custom/models\n"
 	if err := os.WriteFile(filepath.Join(repoRoot, ".env"), []byte(envContent), 0o600); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
@@ -136,8 +136,8 @@ func TestEnsureHostDataDirsUsesConfiguredDocAndCodePaths(t *testing.T) {
 	for _, dir := range []string{
 		filepath.Join(repoRoot, "custom", "docs"),
 		filepath.Join(repoRoot, "custom", "code"),
-		filepath.Join(repoRoot, "data", "index"),
-		filepath.Join(repoRoot, "data", "models"),
+		filepath.Join(repoRoot, "custom", "index"),
+		filepath.Join(repoRoot, "custom", "models"),
 	} {
 		info, err := os.Stat(dir)
 		if err != nil {
@@ -146,6 +146,61 @@ func TestEnsureHostDataDirsUsesConfiguredDocAndCodePaths(t *testing.T) {
 		if !info.IsDir() {
 			t.Fatalf("expected %s to be a directory", dir)
 		}
+	}
+}
+
+func TestEnsureHostDataDirsPrefersProcessEnvOverDotEnv(t *testing.T) {
+	repoRoot := t.TempDir()
+	envContent := "HOST_DOCS_DIR=./from-dotenv/docs\nHOST_CODE_DIR=./from-dotenv/code\nHOST_INDEX_DIR=./from-dotenv/index\nHOST_MODELS_DIR=./from-dotenv/models\n"
+	if err := os.WriteFile(filepath.Join(repoRoot, ".env"), []byte(envContent), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	t.Setenv("HOST_DOCS_DIR", "./from-env/docs")
+	t.Setenv("HOST_CODE_DIR", "./from-env/code")
+	t.Setenv("HOST_INDEX_DIR", "./from-env/index")
+	t.Setenv("HOST_MODELS_DIR", "./from-env/models")
+
+	if err := EnsureHostDataDirs(repoRoot); err != nil {
+		t.Fatalf("EnsureHostDataDirs() failed: %v", err)
+	}
+
+	for _, dir := range []string{
+		filepath.Join(repoRoot, "from-env", "docs"),
+		filepath.Join(repoRoot, "from-env", "code"),
+		filepath.Join(repoRoot, "from-env", "index"),
+		filepath.Join(repoRoot, "from-env", "models"),
+	} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("expected %s to exist: %v", dir, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("expected %s to be a directory", dir)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(repoRoot, "from-dotenv", "docs")); !os.IsNotExist(err) {
+		t.Fatalf("expected .env docs path to stay absent, got err=%v", err)
+	}
+}
+
+func TestResolveHostDirFallsBackToDotEnvWhenProcessEnvIsEmpty(t *testing.T) {
+	repoRoot := t.TempDir()
+	envValues := map[string]string{hostDocsEnvKey: "./from-dotenv/docs"}
+	t.Setenv(hostDocsEnvKey, "   ")
+
+	got, err := resolveHostDir(repoRoot, envValues, hostDocsEnvKey, hostDocsDir)
+	if err != nil {
+		t.Fatalf("resolveHostDir() failed: %v", err)
+	}
+
+	want, err := filepath.Abs(filepath.Join(repoRoot, "from-dotenv", "docs"))
+	if err != nil {
+		t.Fatalf("resolve expected path: %v", err)
+	}
+	if got != want {
+		t.Fatalf("resolved path = %s, want %s", got, want)
 	}
 }
 

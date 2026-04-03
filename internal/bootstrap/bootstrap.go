@@ -12,15 +12,19 @@ import (
 )
 
 const (
-	defaultHTTPPort = 8765
-	envFileName     = ".env"
-	envExampleName  = ".env.example"
-	opencodeName    = "opencode.json"
-	mcpAlias        = "rag-search-mcp"
-	hostIndexDir    = "./data/index"
-	hostModelsDir   = "./data/models"
-	hostDocsDir     = "./data/docs"
-	hostCodeDir     = "./data/code"
+	defaultHTTPPort  = 8765
+	envFileName      = ".env"
+	envExampleName   = ".env.example"
+	opencodeName     = "opencode.json"
+	mcpAlias         = "rag-search-mcp"
+	hostIndexDir     = "./data/index"
+	hostModelsDir    = "./data/models"
+	hostDocsDir      = "./data/docs"
+	hostCodeDir      = "./data/code"
+	hostIndexEnvKey  = "HOST_INDEX_DIR"
+	hostModelsEnvKey = "HOST_MODELS_DIR"
+	hostDocsEnvKey   = "HOST_DOCS_DIR"
+	hostCodeEnvKey   = "HOST_CODE_DIR"
 )
 
 func EnsureEnvFile(repoRoot string) (bool, error) {
@@ -105,21 +109,21 @@ func EnsureHostDataDirs(repoRoot string) error {
 		return err
 	}
 
-	docsDir, err := resolveHostPath(repoRoot, envValues["HOST_DOCS_DIR"], hostDocsDir)
+	docsDir, err := resolveHostDir(repoRoot, envValues, hostDocsEnvKey, hostDocsDir)
 	if err != nil {
-		return fmt.Errorf("resolve HOST_DOCS_DIR: %w", err)
+		return fmt.Errorf("resolve %s: %w", hostDocsEnvKey, err)
 	}
-	codeDir, err := resolveHostPath(repoRoot, envValues["HOST_CODE_DIR"], hostCodeDir)
+	codeDir, err := resolveHostDir(repoRoot, envValues, hostCodeEnvKey, hostCodeDir)
 	if err != nil {
-		return fmt.Errorf("resolve HOST_CODE_DIR: %w", err)
+		return fmt.Errorf("resolve %s: %w", hostCodeEnvKey, err)
 	}
-	indexDir, err := resolveHostPath(repoRoot, "", hostIndexDir)
+	indexDir, err := resolveHostDir(repoRoot, envValues, hostIndexEnvKey, hostIndexDir)
 	if err != nil {
-		return fmt.Errorf("resolve index directory: %w", err)
+		return fmt.Errorf("resolve %s: %w", hostIndexEnvKey, err)
 	}
-	modelsDir, err := resolveHostPath(repoRoot, "", hostModelsDir)
+	modelsDir, err := resolveHostDir(repoRoot, envValues, hostModelsEnvKey, hostModelsDir)
 	if err != nil {
-		return fmt.Errorf("resolve models directory: %w", err)
+		return fmt.Errorf("resolve %s: %w", hostModelsEnvKey, err)
 	}
 
 	for _, dir := range []string{docsDir, codeDir, indexDir, modelsDir} {
@@ -129,6 +133,13 @@ func EnsureHostDataDirs(repoRoot string) error {
 	}
 
 	return nil
+}
+
+func resolveHostDir(repoRoot string, envValues map[string]string, key string, fallback string) (string, error) {
+	if value, ok := os.LookupEnv(key); ok && strings.TrimSpace(value) != "" {
+		return resolveHostPath(repoRoot, value, fallback)
+	}
+	return resolveHostPath(repoRoot, envValues[key], fallback)
 }
 
 func loadEnvFile(repoRoot string) (map[string]string, error) {
