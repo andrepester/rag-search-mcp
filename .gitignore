@@ -1,4 +1,7 @@
-.opencode
+.opencode/*
+!.opencode/BACKLOG.md
+!.opencode/backlog/
+!.opencode/backlog/**
 opencode.json
 opencode.json.*
 .env

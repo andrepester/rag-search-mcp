@@ -44,7 +44,7 @@ install-bootstrap:
 			if [ ! -f .env ]; then \
 				return 0; \
 			fi; \
-			while IFS= read -r line; do \
+			while IFS= read -r line || [ -n "$$line" ]; do \
 				trimmed="$${line#"$${line%%[![:space:]]*}"}"; \
 				case "$$trimmed" in ''|\#*) continue ;; esac; \
 				case "$$trimmed" in "$$key="*) \
