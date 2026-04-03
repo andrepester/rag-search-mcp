@@ -62,9 +62,13 @@ install-bootstrap:
 		set -- docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e RAG_HTTP_PORT -e HOST_DOCS_DIR -e HOST_CODE_DIR -e HOST_INDEX_DIR -e HOST_MODELS_DIR -v "$$host_parent:/workspace-parent" -w "/workspace-parent/$$repo_name"; \
 		for key in HOST_DOCS_DIR HOST_CODE_DIR HOST_INDEX_DIR HOST_MODELS_DIR; do \
 			resolved="$$(resolve_host_override "$$key")"; \
-			if [ -n "$$resolved" ] && [ "$${resolved#/}" != "$$resolved" ]; then \
-				mkdir -p "$$resolved"; \
-				set -- "$$@" -v "$$resolved:$$resolved"; \
+			if [ -n "$$resolved" ]; then \
+				if [ "$${resolved#/}" = "$$resolved" ]; then \
+					resolved_abs="$$(cd "$$host_repo" && mkdir -p "$$resolved" && cd "$$resolved" && pwd -P)"; \
+				else \
+					resolved_abs="$$(mkdir -p "$$resolved" && cd "$$resolved" && pwd -P)"; \
+				fi; \
+				set -- "$$@" -e "$$key=$$resolved_abs" -v "$$resolved_abs:$$resolved_abs"; \
 			fi; \
 		done; \
 		"$$@" $(GO_IMAGE) $(GO_BIN) run ./cmd/rag-install --repo-root "/workspace-parent/$$repo_name"
@@ -141,7 +145,7 @@ bootstrap-smoke:
 	trap 'exit 143' 15; \
 	rm -f .env opencode.json opencode.json.invalid; \
 	rm -rf .smoke-override; \
-	$(MAKE) install-bootstrap; \
+	HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= $(MAKE) install-bootstrap; \
 	test -f .env; \
 	test -f opencode.json; \
 	HOST_DOCS_DIR=./.smoke-override/docs HOST_CODE_DIR=./.smoke-override/code HOST_INDEX_DIR=./.smoke-override/index HOST_MODELS_DIR=./.smoke-override/models $(MAKE) install-bootstrap; \
