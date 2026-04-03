@@ -47,16 +47,22 @@ install-bootstrap:
 			while IFS= read -r line || [ -n "$$line" ]; do \
 				trimmed="$${line#"$${line%%[![:space:]]*}"}"; \
 				case "$$trimmed" in ''|\#*) continue ;; esac; \
-				case "$$trimmed" in "$$key="*) \
-					value="$${trimmed#*=}"; \
-					value="$${value#\"}"; value="$${value%\"}"; \
-					value="$${value#\'}"; value="$${value%\'}"; \
-					value_non_ws="$$(printf '%s' "$$value" | tr -d '[:space:]')"; \
-					if [ -n "$$value_non_ws" ]; then \
-						printf '%s' "$$value"; \
-					fi; \
-					return 0 ;; \
-				esac; \
+				case "$$trimmed" in *=*) ;; *) continue ;; esac; \
+				entry_key="$${trimmed%%=*}"; \
+				entry_key="$${entry_key%"$${entry_key##*[![:space:]]}"}"; \
+				if [ "$$entry_key" != "$$key" ]; then \
+					continue; \
+				fi; \
+				value="$${trimmed#*=}"; \
+				value="$${value#"$${value%%[![:space:]]*}"}"; \
+				value="$${value%"$${value##*[![:space:]]}"}"; \
+				value="$${value#\"}"; value="$${value%\"}"; \
+				value="$${value#\'}"; value="$${value%\'}"; \
+				value_non_ws="$$(printf '%s' "$$value" | tr -d '[:space:]')"; \
+				if [ -n "$$value_non_ws" ]; then \
+					printf '%s' "$$value"; \
+				fi; \
+				return 0; \
 			done < .env; \
 		}; \
 		set -- docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e RAG_HTTP_PORT -e HOST_DOCS_DIR -e HOST_CODE_DIR -e HOST_INDEX_DIR -e HOST_MODELS_DIR -v "$$host_parent:/workspace-parent" -w "/workspace-parent/$$repo_name"; \
