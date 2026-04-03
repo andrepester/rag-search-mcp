@@ -149,6 +149,42 @@ func TestEnsureHostDataDirsUsesConfiguredHostPaths(t *testing.T) {
 	}
 }
 
+func TestEnsureHostDataDirsPrefersProcessEnvOverDotEnv(t *testing.T) {
+	repoRoot := t.TempDir()
+	envContent := "HOST_DOCS_DIR=./from-dotenv/docs\nHOST_CODE_DIR=./from-dotenv/code\nHOST_INDEX_DIR=./from-dotenv/index\nHOST_MODELS_DIR=./from-dotenv/models\n"
+	if err := os.WriteFile(filepath.Join(repoRoot, ".env"), []byte(envContent), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	t.Setenv("HOST_DOCS_DIR", "./from-env/docs")
+	t.Setenv("HOST_CODE_DIR", "./from-env/code")
+	t.Setenv("HOST_INDEX_DIR", "./from-env/index")
+	t.Setenv("HOST_MODELS_DIR", "./from-env/models")
+
+	if err := EnsureHostDataDirs(repoRoot); err != nil {
+		t.Fatalf("EnsureHostDataDirs() failed: %v", err)
+	}
+
+	for _, dir := range []string{
+		filepath.Join(repoRoot, "from-env", "docs"),
+		filepath.Join(repoRoot, "from-env", "code"),
+		filepath.Join(repoRoot, "from-env", "index"),
+		filepath.Join(repoRoot, "from-env", "models"),
+	} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("expected %s to exist: %v", dir, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("expected %s to be a directory", dir)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(repoRoot, "from-dotenv", "docs")); !os.IsNotExist(err) {
+		t.Fatalf("expected .env docs path to stay absent, got err=%v", err)
+	}
+}
+
 func TestUpsertOpenCodeConfigCreatesFile(t *testing.T) {
 	repoRoot := t.TempDir()
 

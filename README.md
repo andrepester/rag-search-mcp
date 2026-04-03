@@ -215,5 +215,5 @@ Artifacts and local resources managed during install:
 
 - `.env` is created from `.env.example` if missing
 - `opencode.json` is upserted with remote MCP config (default alias: `rag-search-mcp`)
-- Host paths are ensured from `.env` (`HOST_DOCS_DIR`, `HOST_CODE_DIR`, `HOST_INDEX_DIR`, `HOST_MODELS_DIR`)
+- Host paths are ensured with precedence `Process Env > .env > defaults` (`HOST_DOCS_DIR`, `HOST_CODE_DIR`, `HOST_INDEX_DIR`, `HOST_MODELS_DIR`)
 - Embedding model `${EMBED_MODEL:-nomic-embed-text}` is pulled into Ollama

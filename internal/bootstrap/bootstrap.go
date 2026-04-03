@@ -109,19 +109,19 @@ func EnsureHostDataDirs(repoRoot string) error {
 		return err
 	}
 
-	docsDir, err := resolveHostPath(repoRoot, envValues[hostDocsEnvKey], hostDocsDir)
+	docsDir, err := resolveHostDir(repoRoot, envValues, hostDocsEnvKey, hostDocsDir)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", hostDocsEnvKey, err)
 	}
-	codeDir, err := resolveHostPath(repoRoot, envValues[hostCodeEnvKey], hostCodeDir)
+	codeDir, err := resolveHostDir(repoRoot, envValues, hostCodeEnvKey, hostCodeDir)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", hostCodeEnvKey, err)
 	}
-	indexDir, err := resolveHostPath(repoRoot, envValues[hostIndexEnvKey], hostIndexDir)
+	indexDir, err := resolveHostDir(repoRoot, envValues, hostIndexEnvKey, hostIndexDir)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", hostIndexEnvKey, err)
 	}
-	modelsDir, err := resolveHostPath(repoRoot, envValues[hostModelsEnvKey], hostModelsDir)
+	modelsDir, err := resolveHostDir(repoRoot, envValues, hostModelsEnvKey, hostModelsDir)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", hostModelsEnvKey, err)
 	}
@@ -133,6 +133,13 @@ func EnsureHostDataDirs(repoRoot string) error {
 	}
 
 	return nil
+}
+
+func resolveHostDir(repoRoot string, envValues map[string]string, key string, fallback string) (string, error) {
+	if value, ok := os.LookupEnv(key); ok {
+		return resolveHostPath(repoRoot, value, fallback)
+	}
+	return resolveHostPath(repoRoot, envValues[key], fallback)
 }
 
 func loadEnvFile(repoRoot string) (map[string]string, error) {

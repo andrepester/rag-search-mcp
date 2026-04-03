@@ -5,7 +5,7 @@
 GO_IMAGE ?= golang:1.25-alpine
 GO_BIN ?= /usr/local/go/bin/go
 GOFMT_BIN ?= /usr/local/go/bin/gofmt
-GO_RUN = docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -v "$(PWD):/workspace" -w /workspace $(GO_IMAGE)
+GO_RUN = docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e RAG_HTTP_PORT -e HOST_DOCS_DIR -e HOST_CODE_DIR -e HOST_INDEX_DIR -e HOST_MODELS_DIR -v "$(PWD):/workspace" -w /workspace $(GO_IMAGE)
 COVERAGE_MIN ?= 60
 COMPOSE = docker compose --project-directory . -f docker/docker-compose.yml
 
@@ -72,9 +72,16 @@ build:
 
 bootstrap-smoke:
 	rm -f .env opencode.json opencode.json.invalid
+	rm -rf .smoke-override
 	$(MAKE) install-bootstrap
 	test -f .env
 	test -f opencode.json
+	HOST_DOCS_DIR=./.smoke-override/docs HOST_CODE_DIR=./.smoke-override/code HOST_INDEX_DIR=./.smoke-override/index HOST_MODELS_DIR=./.smoke-override/models $(MAKE) install-bootstrap
+	test -d ./.smoke-override/docs
+	test -d ./.smoke-override/code
+	test -d ./.smoke-override/index
+	test -d ./.smoke-override/models
+	rm -rf .smoke-override
 
 govulncheck:
 	$(GO_RUN) $(GO_BIN) run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
