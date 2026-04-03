@@ -122,9 +122,9 @@ func TestEnsureHostDataDirsCreatesDefaults(t *testing.T) {
 	}
 }
 
-func TestEnsureHostDataDirsUsesConfiguredDocAndCodePaths(t *testing.T) {
+func TestEnsureHostDataDirsUsesConfiguredHostPaths(t *testing.T) {
 	repoRoot := t.TempDir()
-	envContent := "HOST_DOCS_DIR=./custom/docs\nHOST_CODE_DIR=./custom/code\n"
+	envContent := "HOST_DOCS_DIR=./custom/docs\nHOST_CODE_DIR=./custom/code\nHOST_INDEX_DIR=./custom/index\nHOST_MODELS_DIR=./custom/models\n"
 	if err := os.WriteFile(filepath.Join(repoRoot, ".env"), []byte(envContent), 0o600); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
@@ -136,8 +136,8 @@ func TestEnsureHostDataDirsUsesConfiguredDocAndCodePaths(t *testing.T) {
 	for _, dir := range []string{
 		filepath.Join(repoRoot, "custom", "docs"),
 		filepath.Join(repoRoot, "custom", "code"),
-		filepath.Join(repoRoot, "data", "index"),
-		filepath.Join(repoRoot, "data", "models"),
+		filepath.Join(repoRoot, "custom", "index"),
+		filepath.Join(repoRoot, "custom", "models"),
 	} {
 		info, err := os.Stat(dir)
 		if err != nil {

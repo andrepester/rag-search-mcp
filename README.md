@@ -26,6 +26,32 @@ make run
 
 `make install` bootstraps local config, prepares runtime data paths, starts the stack, pulls the embedding model, rebuilds the index, and verifies indexed data.
 
+### Zielstruktur (Docker-first, alongside)
+
+Empfohlene Zielstruktur fuer den Betrieb mit Host-Mounts:
+
+```text
+<parent>/
+  main/
+    docs/
+    code/
+    rag-search/
+```
+
+- `main/rag-search` enthaelt dieses Repository.
+- `main/docs` wird als Dokumentationsquelle gemountet.
+- `main/code` wird als Codequelle gemountet.
+
+Fuer eine alongside-Installation (`<parent>/main/{docs,code,rag-search}`) starte `make install` in `main/rag-search` und setze die Host-Mounts auf die Nachbarordner, z. B.:
+
+```bash
+HOST_DOCS_DIR=../docs HOST_CODE_DIR=../code make install
+```
+
+Persistente Runtime-Daten bleiben auf dem Host in `main/rag-search/data` (oder in explizit gesetzten `HOST_INDEX_DIR`/`HOST_MODELS_DIR`).
+
+Danach kann Reindex wie gewohnt in `main/rag-search` ausgefuehrt werden.
+
 Reindex after changing mounted docs/code:
 
 ```bash
@@ -86,6 +112,8 @@ All Go toolchain commands run in containers through `Makefile` targets, so a loc
 | `RAG_HTTP_PORT` | `8765` | MCP HTTP port on host |
 | `HOST_DOCS_DIR` | `./data/docs` | Host path mounted as docs source |
 | `HOST_CODE_DIR` | `./data/code` | Host path mounted as code source (can be empty) |
+| `HOST_INDEX_DIR` | `./data/index` | Host path mounted for Chroma index persistence |
+| `HOST_MODELS_DIR` | `./data/models` | Host path mounted for Ollama state and model persistence |
 | `RAG_ENABLE_CODE_INGEST` | `true` | Enable/disable code ingestion |
 | `OLLAMA_HOST` | `http://ollama:11434` | Embedding endpoint for containerized runtime |
 | `OLLAMA_PORT` | `11434` | Host port mapped to the Ollama container |
@@ -148,5 +176,5 @@ Artifacts and local resources managed during install:
 
 - `.env` is created from `.env.example` if missing
 - `opencode.json` is upserted with remote MCP config (default alias: `rag-search-mcp`)
-- Host paths are ensured: `data/docs`, `data/code`, `data/index`, `data/models`
+- Host paths are ensured from `.env` (`HOST_DOCS_DIR`, `HOST_CODE_DIR`, `HOST_INDEX_DIR`, `HOST_MODELS_DIR`)
 - Embedding model `${EMBED_MODEL:-nomic-embed-text}` is pulled into Ollama
