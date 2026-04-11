@@ -25,6 +25,8 @@ flowchart TD
     G --> E
 ```
 
+Security and operating boundary for v1 is defined in `docs/architecture/THREAT_MODEL.md`.
+
 ## Installation & Quickstart
 
 ```bash
@@ -171,6 +173,13 @@ make doctor-verify-index
 ```
 
 ## Configuration
+
+### Security and operating boundary (v1)
+
+- Default mode is `localhost-only`.
+- `LAN-only` is an explicit opt-in mode and not enabled by default.
+- `WAN/Internet` exposure and `VPN/Overlay` access are out of scope in v1.
+- Non-loopback access requires additional controls as defined in `docs/architecture/RAG-SEARCH-MCP-ADR-2026-04-11-lan-betriebsmodus.md` and `docs/architecture/THREAT_MODEL.md`.
 
 ### Environment variables
 
