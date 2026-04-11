@@ -4,6 +4,14 @@
 
 `rag-search-mcp` is a Go-based MCP service for semantic retrieval across documentation and code. OpenCode connects through remote MCP (`type: "remote"`), and the runtime stays decoupled from the client. Project knowledge is usually split between docs, source code, and tribal context; keyword search misses intent, and manual navigation is slow during onboarding, debugging, and architecture work. This service indexes docs and code into a shared semantic store and exposes MCP tools to query both with one interface. Embeddings are generated via Ollama, chunks are stored in Chroma, and OpenCode can search by meaning instead of exact terms.
 
+## Key Features
+
+- Semantic retrieval across docs and code with one MCP interface
+- Scope-aware search (`all`, `docs`, `code`) for targeted results
+- Docker-first runtime with host-mounted sources and persistent index/model data
+- Remote MCP integration for OpenCode via a single HTTP endpoint (`/mcp`)
+- Operational make targets for install, reindex, diagnostics, and verification
+
 ## Architecture
 
 ```mermaid
@@ -88,12 +96,16 @@ Scope behavior:
 | Target | Purpose |
 |---|---|
 | `make install` | Bootstrap config, start runtime stack, pull model, reindex, verify data |
+| `make clean-install` | Reinstall stack from scratch; preserves data by default, wipes index/models only with `FULL_RESET=1` |
+| `make run` | Start runtime stack in detached mode |
+| `make down` | Controlled runtime shutdown (`docker compose down --remove-orphans`) |
+| `make doctor` | Run quality checks plus index verification |
+| `make reindex` | Rebuild semantic index from mounted sources |
+| `make doctor-verify-index` | Verify that indexed data exists in Chroma |
 | `make install-bootstrap` | Create/update `.env`, `opencode.json`, and ensure host mount directories |
 | `make install-wait-ollama` | Wait until the Ollama service responds |
 | `make install-model` | Pull `${EMBED_MODEL}` into Ollama |
-| `make doctor` | Run quality checks plus index verification |
 | `make doctor-index` | Start stack, reindex, and verify indexed data |
-| `make doctor-verify-index` | Verify that indexed data exists in Chroma |
 | `make fmt-check` | Verify `gofmt` formatting in container |
 | `make vet` | Run `go vet ./...` in container |
 | `make mod` | Tidy Go modules |
@@ -104,12 +116,18 @@ Scope behavior:
 | `make govulncheck` | Run Go vulnerability scan (`govulncheck`) in container |
 | `make sbom-go` | Generate CycloneDX SBOM for Go modules |
 | `make licenses-export` | Export dependency licenses to `licenses.csv` |
-| `make run` | Start runtime stack in detached mode |
-| `make reindex` | Rebuild semantic index from mounted sources |
-| `make compose-up` | Start runtime stack |
-| `make compose-down` | Stop runtime stack |
 | `make compose-logs` | Stream runtime logs |
 | `make compose-validate` | Validate runtime stack configuration |
+
+Lifecycle examples:
+
+```bash
+make down
+make clean-install
+make clean-install FULL_RESET=1
+```
+
+Warning: `make clean-install FULL_RESET=1` permanently deletes the host directories resolved from `HOST_INDEX_DIR` and `HOST_MODELS_DIR` before reinstalling.
 
 All Go toolchain commands run in containers through `Makefile` targets, so a local Go installation is not required for normal development flow.
 
