@@ -218,10 +218,30 @@ Note: `opencode.json` in this repository is local/machine-specific and ignored b
 
 GitHub Actions workflows:
 
-- `ci-fast`: formatting check, `go vet`, coverage-gated tests, build checks, runtime config validation
+- `ci-fast`: technical quality gates with separate required jobs: `fmt`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate` (plus non-required `docker-test-stage` to validate Dockerfile test target)
 - `security-baseline`: gitleaks and `govulncheck`
 - `integration-ollama`: full runtime startup via `make install` and reindex smoke check
 - `supply-chain`: SBOM generation, license allowlist gate, filesystem/image vulnerability scans
+
+Recommended required checks for branch protection:
+
+- `fmt`
+- `vet`
+- `test`
+- `build`
+- `bootstrap-smoke`
+- `compose-validate`
+
+Local reproduction of the required checks:
+
+- `make fmt-check`
+- `make vet`
+- `make test-cover COVERAGE_MIN=60`
+- `make build`
+- `make bootstrap-smoke`
+- `make compose-validate`
+
+Note: deterministic Golden-Query retrieval regression tests are tracked separately in `P0-008` and are not part of the `ci-fast` technical baseline gates.
 
 Dependency automation:
 

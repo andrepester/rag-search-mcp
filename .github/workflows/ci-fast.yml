@@ -10,37 +10,60 @@ permissions:
   contents: read
 
 jobs:
-  quality-gate:
+  fmt:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: "1.25.x"
-
       - name: Verify formatting
         run: make fmt-check
 
+  vet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Vet
         run: make vet
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Test with coverage
         env:
           COVERAGE_MIN: "60"
         run: make test-cover COVERAGE_MIN=${COVERAGE_MIN}
 
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Build
         run: make build
 
-      - name: Bootstrap config smoke test
-        run: make bootstrap-smoke
-
+  docker-test-stage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Run tests in Docker build stage
         run: docker build -f docker/Dockerfile --target test -t rag-search-mcp-test .
 
+  bootstrap-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Bootstrap config smoke test
+        run: make bootstrap-smoke
+
+  compose-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Validate Docker Compose
-        run: docker compose --project-directory . -f docker/docker-compose.yml config
+        run: make compose-validate
