@@ -1,18 +1,21 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install install-bootstrap install-wait-ollama install-model doctor doctor-index doctor-verify-index fmt-check vet mod test test-cover build bootstrap-smoke govulncheck sbom-go licenses-export run reindex compose-up compose-down compose-logs compose-validate
+.PHONY: help install install-bootstrap install-wait-ollama install-model doctor doctor-index doctor-verify-index fmt-check vet mod test test-cover build bootstrap-smoke govulncheck sbom-go licenses-export run down clean-install reindex compose-logs compose-validate
 
 GO_IMAGE ?= golang:1.25.9-alpine@sha256:7a00384194cf2cb68924bbb918d675f1517357433c8541bac0ab2f929b9d5447
 GO_BIN ?= /usr/local/go/bin/go
 GOFMT_BIN ?= /usr/local/go/bin/gofmt
 GO_RUN = docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e RAG_HTTP_PORT -e HOST_DOCS_DIR -e HOST_CODE_DIR -e HOST_INDEX_DIR -e HOST_MODELS_DIR -v "$(PWD):/workspace" -w /workspace $(GO_IMAGE)
 COVERAGE_MIN ?= 60
+FULL_RESET ?= 0
 COMPOSE = docker compose --project-directory . -f docker/docker-compose.yml
 
 help:
 	@printf '%s\n' 'Available targets:'
 	@printf '  %-20s %s\n' 'make install' 'Create local config, start stack, pull model, and reindex'
+	@printf '  %-20s %s\n' 'make clean-install' 'Reinstall stack; use FULL_RESET=1 to wipe index/models'
 	@printf '  %-20s %s\n' 'make doctor' 'Run tests/build/compose checks and verify indexed data'
+	@printf '  %-20s %s\n' 'make down' 'Stop runtime stack (controlled shutdown)'
 	@printf '  %-20s %s\n' 'make fmt-check' 'Verify gofmt output in a container'
 	@printf '  %-20s %s\n' 'make vet' 'Run go vet in a container'
 	@printf '  %-20s %s\n' 'make mod' 'Download and tidy Go modules'
@@ -21,8 +24,6 @@ help:
 	@printf '  %-20s %s\n' 'make build' 'Run containerized Go compile check (no binaries)'
 	@printf '  %-20s %s\n' 'make run' 'Run MCP server via Docker Compose'
 	@printf '  %-20s %s\n' 'make reindex' 'Run index build in the service container'
-	@printf '  %-20s %s\n' 'make compose-up' 'Start compose stack'
-	@printf '  %-20s %s\n' 'make compose-down' 'Stop compose stack'
 	@printf '  %-20s %s\n' 'make compose-logs' 'Tail compose logs'
 	@printf '  %-20s %s\n' 'make compose-validate' 'Validate Docker Compose config'
 
@@ -186,14 +187,130 @@ licenses-export:
 run:
 	$(COMPOSE) up -d --build
 
+down:
+	$(COMPOSE) down --remove-orphans
+
+clean-install:
+	@set -eu; \
+		is_full_reset=0; \
+		case "$(FULL_RESET)" in \
+			1|true|TRUE|yes|YES) is_full_reset=1 ;; \
+			0|false|FALSE|no|NO|'') ;; \
+			*) printf '%s\n' 'FULL_RESET must be one of: 0,1,true,false,yes,no' >&2; exit 2 ;; \
+		esac; \
+		if [ "$$is_full_reset" -eq 1 ]; then \
+			repo_root="$$(pwd -P)"; \
+			resolve_host_override() { \
+				key="$$1"; \
+				default_value="$$2"; \
+				eval "value=\$${$$key-}"; \
+				value_non_ws="$$(printf '%s' "$$value" | tr -d '[:space:]')"; \
+				if [ -n "$$value_non_ws" ]; then \
+					printf '%s' "$$value"; \
+					return 0; \
+				fi; \
+				if [ -f .env ]; then \
+					while IFS= read -r line || [ -n "$$line" ]; do \
+						trimmed="$${line#"$${line%%[![:space:]]*}"}"; \
+						case "$$trimmed" in ''|\#*) continue ;; esac; \
+						case "$$trimmed" in *=*) ;; *) continue ;; esac; \
+						entry_key="$${trimmed%%=*}"; \
+						entry_key="$${entry_key%"$${entry_key##*[![:space:]]}"}"; \
+						if [ "$$entry_key" != "$$key" ]; then \
+							continue; \
+						fi; \
+						value="$${trimmed#*=}"; \
+						value="$${value#"$${value%%[![:space:]]*}"}"; \
+						value="$${value%"$${value##*[![:space:]]}"}"; \
+						value="$${value#\"}"; value="$${value%\"}"; \
+						value="$${value#\'}"; value="$${value%\'}"; \
+						value_non_ws="$$(printf '%s' "$$value" | tr -d '[:space:]')"; \
+						if [ -n "$$value_non_ws" ]; then \
+							printf '%s' "$$value"; \
+							return 0; \
+						fi; \
+					done < .env; \
+				fi; \
+				printf '%s' "$$default_value"; \
+			}; \
+			to_abs() { \
+				value="$$1"; \
+				case "$$value" in \
+					/*) target="$$value" ;; \
+					*) target="$$repo_root/$$value" ;; \
+				esac; \
+				target="$${target%/}"; \
+				if [ -z "$$target" ]; then \
+					printf '/'; \
+					return 0; \
+				fi; \
+				dir_part="$${target%/*}"; \
+				base_part="$${target##*/}"; \
+				if [ "$$base_part" = "." ] || [ "$$base_part" = ".." ]; then \
+					printf '%s\n' "FULL_RESET refused: unresolved terminal path segment '$$base_part' in '$$target'" >&2; \
+					exit 3; \
+				fi; \
+				if [ -z "$$dir_part" ]; then \
+					dir_part="/"; \
+				fi; \
+				dir_abs="$$(cd "$$dir_part" 2>/dev/null && pwd -P)" || { \
+					printf '%s\n' "FULL_RESET refused: cannot resolve parent directory '$$dir_part'" >&2; \
+					exit 3; \
+				}; \
+				printf '%s/%s' "$$dir_abs" "$$base_part"; \
+			}; \
+			index_dir="$$(resolve_host_override HOST_INDEX_DIR ./data/index)"; \
+			models_dir="$$(resolve_host_override HOST_MODELS_DIR ./data/models)"; \
+			index_abs="$$(to_abs "$$index_dir")"; \
+			models_abs="$$(to_abs "$$models_dir")"; \
+			repo_parent="$$(dirname "$$repo_root")"; \
+			home_dir="$${HOME:-}"; \
+			assert_safe_reset_dir() { \
+				dir="$$1"; \
+				label="$$2"; \
+				if [ -z "$$dir" ]; then \
+					printf '%s\n' "FULL_RESET refused: $$label resolved to empty path" >&2; \
+					exit 3; \
+				fi; \
+				case "$$dir" in /|.) \
+					printf '%s\n' "FULL_RESET refused: unsafe $$label path '$$dir'" >&2; \
+					exit 3 ;; \
+				esac; \
+				if [ "$$dir" = "$$repo_root" ] || [ "$$dir" = "$$repo_parent" ]; then \
+					printf '%s\n' "FULL_RESET refused: $$label points to repo/root-adjacent path '$$dir'" >&2; \
+					exit 3; \
+				fi; \
+				if [ -n "$$home_dir" ] && [ "$$dir" = "$$home_dir" ]; then \
+					printf '%s\n' "FULL_RESET refused: $$label points to HOME '$$dir'" >&2; \
+					exit 3; \
+				fi; \
+				case "$$repo_root/" in "$$dir"/*) \
+					printf '%s\n' "FULL_RESET refused: $$label '$$dir' is ancestor of repo '$$repo_root'" >&2; \
+					exit 3 ;; \
+				esac; \
+				depth="$$(printf '%s' "$$dir" | tr -cd '/' | wc -c | tr -d '[:space:]')"; \
+				if [ "$$depth" -lt 3 ]; then \
+					case "$$dir" in \
+						/tmp/*|/mnt/*) ;; \
+						*) \
+							printf '%s\n' "FULL_RESET refused: $$label '$$dir' is too broad (depth $$depth)" >&2; \
+							exit 3 ;; \
+					esac; \
+				fi; \
+			}; \
+			assert_safe_reset_dir "$$index_abs" HOST_INDEX_DIR; \
+			assert_safe_reset_dir "$$models_abs" HOST_MODELS_DIR; \
+			printf 'FULL_RESET=1: removing persistent runtime paths\n  - %s\n  - %s\n' "$$index_abs" "$$models_abs"; \
+			$(MAKE) down; \
+			rm -rf "$$index_abs" "$$models_abs"; \
+		else \
+			printf '%s\n' 'Safe clean-install: preserving HOST_INDEX_DIR and HOST_MODELS_DIR (set FULL_RESET=1 to wipe).'; \
+			$(MAKE) down; \
+		fi; \
+		$(MAKE) install
+
 reindex:
 	$(COMPOSE) run --rm --entrypoint /app/rag-index rag-mcp
-
-compose-up:
-	$(COMPOSE) up -d --build
-
-compose-down:
-	$(COMPOSE) down
 
 compose-logs:
 	$(COMPOSE) logs -f
