@@ -2,7 +2,7 @@
 
 .PHONY: help install install-bootstrap install-wait-ollama install-model doctor doctor-index doctor-verify-index fmt-check vet mod test test-cover build bootstrap-smoke govulncheck sbom-go licenses-export run reindex compose-up compose-down compose-logs compose-validate
 
-GO_IMAGE ?= golang:1.25-alpine@sha256:8e02eb337d9e0ea459e041f1ee5eece41cbb61f1d83e7d883a3e2fb4862063fa
+GO_IMAGE ?= golang:1.25.9-alpine@sha256:7a00384194cf2cb68924bbb918d675f1517357433c8541bac0ab2f929b9d5447
 GO_BIN ?= /usr/local/go/bin/go
 GOFMT_BIN ?= /usr/local/go/bin/gofmt
 GO_RUN = docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e RAG_HTTP_PORT -e HOST_DOCS_DIR -e HOST_CODE_DIR -e HOST_INDEX_DIR -e HOST_MODELS_DIR -v "$(PWD):/workspace" -w /workspace $(GO_IMAGE)
