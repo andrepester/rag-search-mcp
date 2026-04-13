@@ -34,7 +34,7 @@ clean-install:
 	@FULL_RESET='$(FULL_RESET)' COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' sh ./shell/clean-install.sh
 
 reindex:
-	$(COMPOSE) exec -T rag-mcp /app/rag-index
+	@COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' sh ./shell/reindex.sh
 
 logs:
 	$(COMPOSE) logs -f
