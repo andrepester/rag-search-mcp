@@ -14,12 +14,8 @@ func TestRunCreatesEnvAndOpenCodeConfig(t *testing.T) {
 		t.Fatalf("write .env.example: %v", err)
 	}
 
-	originalArgs := os.Args
-	os.Args = []string{"rag-install", "--repo-root", repoRoot}
-	t.Cleanup(func() { os.Args = originalArgs })
-
 	var out bytes.Buffer
-	if err := run(&out); err != nil {
+	if err := run([]string{"--repo-root", repoRoot}, &out); err != nil {
 		t.Fatalf("run() failed: %v", err)
 	}
 
@@ -47,7 +43,6 @@ func TestRunCreatesEnvAndOpenCodeConfig(t *testing.T) {
 		}
 	}
 }
-
 func assertFileMode(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 	info, err := os.Stat(path)

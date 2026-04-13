@@ -135,6 +135,40 @@ func EnsureHostDataDirs(repoRoot string) error {
 	return nil
 }
 
+func UpsertHostSourceDirs(repoRoot string, docsDir string, codeDir string) error {
+	docsDir = strings.TrimSpace(docsDir)
+	codeDir = strings.TrimSpace(codeDir)
+	if docsDir == "" {
+		return fmt.Errorf("%s must not be empty", hostDocsEnvKey)
+	}
+	if codeDir == "" {
+		return fmt.Errorf("%s must not be empty", hostCodeEnvKey)
+	}
+
+	envPath := filepath.Join(repoRoot, envFileName)
+	raw, err := os.ReadFile(envPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("read .env: %w", err)
+		}
+		raw = []byte{}
+	}
+
+	updated := upsertEnvValues(string(raw), map[string]string{
+		hostDocsEnvKey: docsDir,
+		hostCodeEnvKey: codeDir,
+	})
+
+	if err := os.WriteFile(envPath, []byte(updated), 0o600); err != nil {
+		return fmt.Errorf("write .env: %w", err)
+	}
+	if err := os.Chmod(envPath, 0o600); err != nil {
+		return fmt.Errorf("chmod .env: %w", err)
+	}
+
+	return nil
+}
+
 func resolveHostDir(repoRoot string, envValues map[string]string, key string, fallback string) (string, error) {
 	if value, ok := os.LookupEnv(key); ok && strings.TrimSpace(value) != "" {
 		return resolveHostPath(repoRoot, value, fallback)
@@ -198,6 +232,55 @@ func resolveHostPath(repoRoot string, configured string, fallback string) (strin
 	}
 
 	return filepath.Abs(filepath.Join(repoRoot, rawPath))
+}
+
+func upsertEnvValues(content string, updates map[string]string) string {
+	if len(updates) == 0 {
+		if strings.HasSuffix(content, "\n") || content == "" {
+			return content
+		}
+		return content + "\n"
+	}
+
+	orderedKeys := []string{hostDocsEnvKey, hostCodeEnvKey}
+	lines := strings.Split(content, "\n")
+	seen := map[string]bool{}
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		parts := strings.SplitN(trimmed, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value, ok := updates[key]
+		if !ok {
+			continue
+		}
+		lines[i] = fmt.Sprintf("%s=%s", key, value)
+		seen[key] = true
+	}
+
+	for _, key := range orderedKeys {
+		value, ok := updates[key]
+		if !ok || seen[key] {
+			continue
+		}
+		if len(lines) == 1 && lines[0] == "" {
+			lines[0] = fmt.Sprintf("%s=%s", key, value)
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	result := strings.Join(lines, "\n")
+	if !strings.HasSuffix(result, "\n") {
+		result += "\n"
+	}
+	return result
 }
 
 func UpsertOpenCodeConfig(repoRoot string, port int) error {
