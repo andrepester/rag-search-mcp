@@ -1,16 +1,25 @@
-# rag-search-mcp (Go + Chroma + Ollama)
+# rag-search-mcp
+
+`rag-search-mcp` is a Docker-first MCP service for semantic retrieval across documentation and source code. It indexes mounted docs and code into a shared vector store and exposes MCP tools for semantic search, chunk lookup, source listing, and reindexing.
+
+The runtime uses:
+
+- Go for the MCP service and indexing logic
+- Ollama for embeddings
+- Chroma for vector storage
+- OpenCode remote MCP for client integration
 
 ## Overview
 
-`rag-search-mcp` is a Go-based MCP service for semantic retrieval across documentation and code. OpenCode connects through remote MCP (`type: "remote"`), and the runtime stays decoupled from the client. Project knowledge is usually split between docs, source code, and tribal context; keyword search misses intent, and manual navigation is slow during onboarding, debugging, and architecture work. This service indexes docs and code into a shared semantic store and exposes MCP tools to query both with one interface. Embeddings are generated via Ollama, chunks are stored in Chroma, and OpenCode can search by meaning instead of exact terms.
+Project knowledge is usually split across docs, code, and local team context. Keyword search misses intent, and manual navigation is slow during onboarding, debugging, and architecture work. `rag-search-mcp` addresses that by providing one semantic retrieval interface across both docs and code.
 
-## Key Features
+Key capabilities:
 
-- Semantic retrieval across docs and code with one MCP interface
-- Scope-aware search (`all`, `docs`, `code`) for targeted results
-- Docker-first runtime with host-mounted sources and persistent index/model data
-- Remote MCP integration for OpenCode via a single HTTP endpoint (`/mcp`)
-- Operational make targets for install, reindex, diagnostics, and verification
+- Semantic retrieval across docs and code through one MCP endpoint
+- Scope-aware search with `all`, `docs`, and `code`
+- Docker-based runtime with host-mounted source directories
+- Persistent host storage for index and embedding models
+- Operational `make` targets for install, reindex, diagnostics, and testing
 
 ## Architecture
 
@@ -25,19 +34,45 @@ flowchart TD
     G --> E
 ```
 
-Security and operating boundary for v1 is defined in `docs/architecture/THREAT_MODEL.md`.
+## Requirements
 
-## Installation & Quickstart
+- Docker Engine
+- Docker Compose plugin
+- GNU Make
+
+No local Go installation is required for the normal development workflow.
+
+## Installation
+
+### Quick start
 
 ```bash
 make install
 ```
 
-`make install` bootstraps local config, prepares runtime data paths, starts the stack, pulls the embedding model, rebuilds the index, and verifies indexed data.
+`make install` performs the standard bootstrap flow:
 
-### Zielstruktur (Docker-first, alongside)
+1. Creates `.env` from `.env.example` if needed
+2. Resolves and persists source directory settings
+3. Starts the Docker stack
+4. Pulls the embedding model into Ollama
+5. Rebuilds the semantic index
+6. Verifies the indexed data
 
-Empfohlene Zielstruktur fuer den Betrieb mit Host-Mounts:
+After changing mounted docs or code, rebuild the index with:
+
+```bash
+make reindex
+```
+
+### Source directory layout
+
+By default, the service mounts:
+
+- `./data/docs` as the documentation source
+- `./data/code` as the code source
+
+An alongside layout is also supported:
 
 ```text
 <parent>/
@@ -47,70 +82,69 @@ Empfohlene Zielstruktur fuer den Betrieb mit Host-Mounts:
     rag-search-mcp/
 ```
 
-- `main/rag-search-mcp` enthaelt dieses Repository.
-- `main/docs` wird als Dokumentationsquelle gemountet.
-- `main/code` wird als Codequelle gemountet.
-
-Fuer eine alongside-Installation (`<parent>/main/{docs,code,rag-search-mcp}`) starte `make install` in `main/rag-search-mcp` und setze die Host-Mounts auf die Nachbarordner, z. B.:
+In that layout, run `make install` from `main/rag-search-mcp` and point the mounts at the sibling directories:
 
 ```bash
 HOST_DOCS_DIR=../docs HOST_CODE_DIR=../code make install
 ```
 
-Persistente Runtime-Daten bleiben auf dem Host in `main/rag-search-mcp/data` (oder in explizit gesetzten `HOST_INDEX_DIR`/`HOST_MODELS_DIR`).
+Persistent runtime data stays on the host under `data/` by default, or under the paths set via `HOST_INDEX_DIR` and `HOST_MODELS_DIR`.
 
-Danach kann Reindex wie gewohnt in `main/rag-search-mcp` ausgefuehrt werden.
+### Interactive install behavior
 
-Reindex after changing mounted docs/code:
+In an interactive terminal, `make install` prompts for source directory selection:
 
-```bash
-make reindex
-```
+- Keep the current paths
+- Use standard paths: `./data/docs` and `./data/code`
+- Enter custom paths
 
-## Example prompts
+Path resolution precedence is:
 
-This repository ships app configuration and skills/tooling so these prompts work directly in OpenCode.
+1. Process environment
+2. `.env`
+3. Built-in defaults
+
+The selected docs and code paths are written to `.env` before Docker starts.
+
+## Usage
+
+### Exposed MCP tools
+
+With the default MCP alias `rag-search-mcp`, OpenCode can use:
+
+- `rag_search`: semantic search with `scope=all|docs|code`
+- `rag_get_chunk`: fetch one chunk by `chunk_id`
+- `rag_list_sources`: list indexed source paths
+- `rag_reindex`: rebuild the index from mounted sources
+
+Scope behavior:
+
+- `all`: search docs and code
+- `docs`: search docs only
+- `code`: search code only
+- If `data/code` is empty or code ingest is disabled, `all` effectively behaves as docs-only
+
+### Example prompts
 
 - `Use rag_search with scope docs to explain installation.`
 - `Use rag_search with scope code to find chunking logic.`
 - `Use rag_search with scope all and summarize architecture from docs and code.`
 - `Call rag_list_sources with scope all.`
 
-## Exposed MCP Tools
+## Operations
 
-With the default MCP alias `rag-search-mcp` in `opencode.json`, OpenCode gets:
-
-- `rag_search`: semantic search with `scope=all|docs|code` (default `all`)
-- `rag_get_chunk`: fetch one chunk by `chunk_id`
-- `rag_list_sources`: list indexed source paths
-- `rag_reindex`: rebuild index from mounted sources
-
-Scope behavior:
-
-- `all` searches docs and code
-- `docs` searches docs only
-- `code` searches code only
-- If `data/code` is empty or code ingest is disabled, `all` behaves like docs-only
-
-## Make Targets
+### Make targets
 
 | Target | Purpose |
 |---|---|
-| `make install` | Bootstrap config, start runtime stack, pull model, reindex, verify data |
-| `make clean-install` | Reinstall stack from scratch; preserves data by default, wipes index/models only with `FULL_RESET=1` |
-| `make up` | Start runtime stack in detached mode |
-| `make down` | Controlled runtime shutdown without container removal |
-| `make test` | Run Go tests in a container |
-| `make reindex` | Rebuild semantic index in the running `rag-mcp` container |
+| `make install` | Bootstrap config, start the stack, pull the model, reindex, verify data |
+| `make clean-install` | Reinstall the stack; preserves index and models by default |
+| `make up` | Start the runtime stack in detached mode |
+| `make down` | Stop the runtime stack without removing containers |
+| `make test` | Run Go tests through the Dockerfile `go-runner` stage |
+| `make reindex` | Rebuild the semantic index in the running `rag-mcp` container |
 | `make logs` | Stream runtime logs |
-| `make doctor` | Runtime checks for running stack (compose config, reindex, index verify, health) |
-
-Interactive installer behavior:
-
-- `make install` prompts in interactive terminals with three options: keep current source paths (default), use standard `./data/docs` + `./data/code`, or enter custom paths.
-- Pressing Enter keeps the currently resolved values (from explicit `HOST_DOCS_DIR` / `HOST_CODE_DIR`, then `.env`, then defaults).
-- The selected source paths are written to `.env` on the host before Docker starts.
-- Make targets remain the user-facing API; host-side shell helpers under `shell/` are internal implementation details.
+| `make doctor` | Run runtime diagnostics, reindex, verify index data, and check health |
 
 Lifecycle examples:
 
@@ -120,77 +154,40 @@ make clean-install
 make clean-install FULL_RESET=1
 ```
 
-Warning: `make clean-install FULL_RESET=1` permanently deletes the host directories resolved from `HOST_INDEX_DIR` and `HOST_MODELS_DIR` before reinstalling.
-
-All Go toolchain commands run in containers through `Makefile` targets, so a local Go installation is not required for normal development flow.
-
-Docker-only Guardrails:
-
-- Standard local workflows use `make` targets only; direct local `go` execution is intentionally avoided.
-- CI workflows execute quality/security checks via dedicated shell scripts under `shell/` or direct Docker long commands, independent from user-facing make targets.
-
-## Troubleshooting & Diagnose
-
-Validate runtime configuration:
-
-```bash
-docker compose --project-directory . -f docker/docker-compose.yml config
-```
-
-Check service state:
-
-```bash
-docker compose --project-directory . -f docker/docker-compose.yml ps
-```
-
-Inspect runtime logs:
-
-```bash
-docker compose --project-directory . -f docker/docker-compose.yml logs rag-mcp
-docker compose --project-directory . -f docker/docker-compose.yml logs chroma
-docker compose --project-directory . -f docker/docker-compose.yml logs ollama
-```
-
-Run end-to-end health and index checks:
-
-```bash
-make doctor
-```
-
-Run index verification only:
-
-```bash
-sh ./shell/doctor-verify-index.sh
-```
+`make clean-install FULL_RESET=1` permanently deletes the host directories resolved from `HOST_INDEX_DIR` and `HOST_MODELS_DIR` before reinstalling.
 
 ## Configuration
 
-### Security and operating boundary (v1)
+### Security boundary for v1
 
-- Default mode is `localhost-only`.
-- `LAN-only` is an explicit opt-in mode and not enabled by default.
-- `WAN/Internet` exposure and `VPN/Overlay` access are out of scope in v1.
-- Non-loopback access requires additional controls as defined in `docs/architecture/RAG-SEARCH-MCP-ADR-2026-04-11-lan-betriebsmodus.md` and `docs/architecture/THREAT_MODEL.md`.
+- Default mode is `localhost-only`
+- `LAN-only` is explicit opt-in and not enabled by default
+- WAN/Internet exposure is out of scope in v1
+- VPN/overlay access is out of scope in v1
+
+Non-loopback access requires additional controls as defined in the ADR and threat model.
 
 ### Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `RAG_HTTP_HOST` | `127.0.0.1` | HTTP bind address (local default is loopback) |
-| `RAG_HTTP_PORT` | `8765` | MCP HTTP port on host |
+| `RAG_HTTP_HOST` | `127.0.0.1` | MCP HTTP bind host inside the container |
+| `RAG_HTTP_PORT` | `8765` | MCP HTTP port published on the host |
 | `HOST_DOCS_DIR` | `./data/docs` | Host path mounted as docs source |
-| `HOST_CODE_DIR` | `./data/code` | Host path mounted as code source (can be empty) |
-| `HOST_INDEX_DIR` | `./data/index` | Host path mounted for Chroma index persistence |
-| `HOST_MODELS_DIR` | `./data/models` | Host path mounted for Ollama model persistence (`/root/.ollama/models`) |
-| `RAG_ENABLE_CODE_INGEST` | `true` | Enable/disable code ingestion |
-| `OLLAMA_HOST` | `http://ollama:11434` | Embedding endpoint for containerized runtime |
-| `OLLAMA_PORT` | `11434` | Host port mapped to the Ollama container |
-| `EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
+| `HOST_CODE_DIR` | `./data/code` | Host path mounted as code source |
+| `HOST_INDEX_DIR` | `./data/index` | Host path used for Chroma persistence |
+| `HOST_MODELS_DIR` | `./data/models` | Host path used for Ollama model persistence |
+| `RAG_ENABLE_CODE_INGEST` | `true` | Enable or disable code ingestion |
+| `RAG_CHROMA_TENANT` | `default_tenant` | Chroma tenant |
+| `RAG_CHROMA_DATABASE` | `default_database` | Chroma database |
 | `RAG_COLLECTION_NAME` | `rag` | Chroma collection name |
 | `RAG_SCOPE_DEFAULT` | `all` | Default search scope |
-| `RAG_CHUNK_SIZE` | `1200` | Chunk size in chars |
-| `RAG_CHUNK_OVERLAP` | `200` | Chunk overlap in chars |
+| `RAG_CHUNK_SIZE` | `1200` | Chunk size in characters |
+| `RAG_CHUNK_OVERLAP` | `200` | Chunk overlap in characters |
 | `RAG_MAX_TOP_K` | `50` | Upper bound for search `top_k` |
+| `OLLAMA_HOST` | `http://ollama:11434` | Embedding endpoint used by `rag-mcp` |
+| `OLLAMA_PORT` | `11434` | Host port mapped to the Ollama container |
+| `EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
 
 ### OpenCode configuration
 
@@ -210,18 +207,29 @@ sh ./shell/doctor-verify-index.sh
 }
 ```
 
-This project is operated Docker-first. Use the provided container stack and `make` targets as the canonical runtime and maintenance workflow.
+The project is intended to be operated through the provided Docker stack and `make` targets.
 
-Note: `opencode.json` in this repository is local/machine-specific and ignored by git.
+Local `opencode.json` variants are ignored by Git.
 
-## Actions
+## Development
+
+This repository uses a Docker-first workflow.
+
+- Use `make` targets as the primary local interface
+- Avoid direct local `go` execution in standard workflows
+- Use `make test` for Go tests
+- Treat shell helpers under `shell/` as internal implementation details behind the `make` targets
+
+The Dockerfile is the canonical source for the shared Go toolchain image used in local workflows and CI.
+
+## CI and automation
 
 GitHub Actions workflows:
 
-- `ci-fast`: technical quality gates with separate required jobs: `fmt`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate` (plus non-required `docker-test-stage` to validate Dockerfile test target)
-- `security-baseline`: gitleaks and `govulncheck`
-- `integration-ollama`: full runtime startup via `make install` and reindex smoke check
-- `supply-chain`: SBOM generation, license allowlist gate, filesystem/image vulnerability scans
+- `ci-fast`: `fmt`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
+- `security-baseline`: `gitleaks` and `govulncheck`
+- `integration-ollama`: full runtime startup via `make install` with health smoke checks
+- `supply-chain`: SBOM generation, license allowlist gate, and filesystem/image vulnerability scans
 
 Recommended required checks for branch protection:
 
@@ -232,37 +240,46 @@ Recommended required checks for branch protection:
 - `bootstrap-smoke`
 - `compose-validate`
 
-Local reproduction of the required checks:
+Dependabot updates are configured for:
 
-- `sh ./shell/ci-fmt-check.sh`
-- `sh ./shell/ci-vet.sh`
-- `COVERAGE_MIN=60 sh ./shell/ci-test-cover.sh`
-- `sh ./shell/ci-build.sh`
-- `sh ./shell/bootstrap-smoke.sh`
-- `docker compose --project-directory . -f docker/docker-compose.yml config`
+- Go modules
+- GitHub Actions
+- Docker
 
-Note: deterministic Golden-Query retrieval regression tests are tracked separately in `P0-008` and are not part of the `ci-fast` technical baseline gates.
+## Troubleshooting
 
-Dependency automation:
+### The index does not reflect recent file changes
 
-- Dependabot updates for `gomod`, `github-actions`, and `docker` via `.github/dependabot.yml`
+Rebuild it:
 
-## Dependencies
+```bash
+make reindex
+```
 
-Runtime dependencies:
+### `make doctor` or `make reindex` says the stack is not running
 
-- Docker Engine + Docker Compose plugin
-- GNU Make
+Start the runtime first:
 
-Service dependencies started by `make` targets:
+```bash
+make up
+```
 
-- `ollama` for embedding generation
-- `chroma` for vector storage
-- `rag-mcp` for MCP HTTP endpoint
+For a full bootstrap, use:
 
-Artifacts and local resources managed during install:
+```bash
+make install
+```
 
-- `.env` is created from `.env.example` if missing
-- `opencode.json` is upserted with remote MCP config (default alias: `rag-search-mcp`)
-- Host paths are ensured with precedence `Process Env > .env > defaults` (`HOST_DOCS_DIR`, `HOST_CODE_DIR`, `HOST_INDEX_DIR`, `HOST_MODELS_DIR`)
-- Embedding model `${EMBED_MODEL:-nomic-embed-text}` is pulled into Ollama
+### I need to reset persisted runtime data
+
+Use:
+
+```bash
+make clean-install FULL_RESET=1
+```
+
+This deletes the resolved host paths for index and model persistence before reinstalling.
+
+### Can I expose the service beyond localhost?
+
+Not by default. v1 is localhost-first. Non-loopback access is an explicit opt-in topic with additional controls and documented constraints in the ADR and threat model.

@@ -2,9 +2,6 @@
 set -eu
 
 . ./shell/lib.sh
-
-: "${GO_IMAGE:=golang:1.25.9-alpine@sha256:7a00384194cf2cb68924bbb918d675f1517357433c8541bac0ab2f929b9d5447}"
-: "${GO_BIN:=/usr/local/go/bin/go}"
 compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
 compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
 
@@ -91,5 +88,5 @@ else
 fi
 
 if [ "$skip_install" -eq 0 ]; then
-	GO_IMAGE="$GO_IMAGE" GO_BIN="$GO_BIN" COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/install.sh
+	COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/install.sh
 fi

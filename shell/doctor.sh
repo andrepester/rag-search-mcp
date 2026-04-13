@@ -29,7 +29,7 @@ while [ "$i" -le 60 ]; do
 	i=$((i + 1))
 done
 
-docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T rag-mcp /app/rag-index
+COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/reindex.sh
 COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/doctor-verify-index.sh
 
 if ! docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T rag-mcp sh -lc 'wget -qO- http://127.0.0.1:8765/healthz >/dev/null'; then

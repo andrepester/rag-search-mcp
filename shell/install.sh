@@ -1,12 +1,10 @@
 #!/bin/sh
 set -eu
 
-: "${GO_IMAGE:=golang:1.25.9-alpine@sha256:7a00384194cf2cb68924bbb918d675f1517357433c8541bac0ab2f929b9d5447}"
-: "${GO_BIN:=/usr/local/go/bin/go}"
 compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
 compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
 
-GO_IMAGE="$GO_IMAGE" GO_BIN="$GO_BIN" sh ./shell/install-bootstrap.sh
+sh ./shell/install-bootstrap.sh
 
 docker compose --project-directory "$compose_project_dir" -f "$compose_file" up -d --build
 
