@@ -12,17 +12,17 @@ import (
 )
 
 func main() {
-	if err := run(os.Stdout); err != nil {
+	if err := run(os.Args[1:], os.Stdout); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(stdout io.Writer) error {
+func run(args []string, stdout io.Writer) error {
 	var repoRoot string
 	fs := flag.NewFlagSet("rag-install", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&repoRoot, "repo-root", ".", "repository root directory")
-	if err := fs.Parse(os.Args[1:]); err != nil {
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
