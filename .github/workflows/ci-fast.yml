@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Verify formatting
-        run: make fmt-check
+        run: sh ./shell/ci-fmt-check.sh
 
   vet:
     runs-on: ubuntu-latest
@@ -24,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Vet
-        run: make vet
+        run: sh ./shell/ci-vet.sh
 
   test:
     runs-on: ubuntu-latest
@@ -34,7 +34,7 @@ jobs:
       - name: Test with coverage
         env:
           COVERAGE_MIN: "60"
-        run: make test-cover COVERAGE_MIN=${COVERAGE_MIN}
+        run: sh ./shell/ci-test-cover.sh
 
   build:
     runs-on: ubuntu-latest
@@ -42,7 +42,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Build
-        run: make build
+        run: sh ./shell/ci-build.sh
 
   docker-test-stage:
     runs-on: ubuntu-latest
@@ -58,7 +58,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Bootstrap config smoke test
-        run: make bootstrap-smoke
+        run: sh ./shell/bootstrap-smoke.sh
 
   compose-validate:
     runs-on: ubuntu-latest
@@ -66,4 +66,4 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Validate Docker Compose
-        run: make compose-validate
+        run: docker compose --project-directory . -f docker/docker-compose.yml config

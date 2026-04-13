@@ -3,6 +3,9 @@ set -eu
 
 . ./shell/lib.sh
 
+: "${GO_IMAGE:=golang:1.25.9-alpine@sha256:7a00384194cf2cb68924bbb918d675f1517357433c8541bac0ab2f929b9d5447}"
+: "${GO_BIN:=/usr/local/go/bin/go}"
+
 host_repo=$(pwd -P)
 host_parent=$(dirname "$host_repo")
 repo_name=$(basename "$host_repo")
@@ -72,4 +75,4 @@ for key in HOST_DOCS_DIR HOST_CODE_DIR HOST_INDEX_DIR HOST_MODELS_DIR; do
 	fi
 done
 
-"$@" "${GO_IMAGE:?GO_IMAGE is required}" "${GO_BIN:?GO_BIN is required}" run ./cmd/rag-install --repo-root "/workspace-parent/$repo_name"
+"$@" "$GO_IMAGE" "$GO_BIN" run ./cmd/rag-install --repo-root "/workspace-parent/$repo_name"

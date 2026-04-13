@@ -31,7 +31,6 @@ Security and operating boundary for v1 is defined in `docs/architecture/THREAT_M
 
 ```bash
 make install
-make run
 ```
 
 `make install` bootstraps local config, prepares runtime data paths, starts the stack, pulls the embedding model, rebuilds the index, and verifies indexed data.
@@ -99,31 +98,16 @@ Scope behavior:
 |---|---|
 | `make install` | Bootstrap config, start runtime stack, pull model, reindex, verify data |
 | `make clean-install` | Reinstall stack from scratch; preserves data by default, wipes index/models only with `FULL_RESET=1` |
-| `make run` | Start runtime stack in detached mode |
-| `make down` | Controlled runtime shutdown (`docker compose down --remove-orphans`) |
-| `make doctor` | Run quality checks plus index verification |
-| `make reindex` | Rebuild semantic index from mounted sources |
-| `make doctor-verify-index` | Verify that indexed data exists in Chroma |
-| `make install-bootstrap` | Create/update `.env`, `opencode.json`, and ensure host mount directories |
-| `make install-wait-ollama` | Wait until the Ollama service responds |
-| `make install-model` | Pull `${EMBED_MODEL}` into Ollama |
-| `make doctor-index` | Start stack, reindex, and verify indexed data |
-| `make fmt-check` | Verify `gofmt` formatting in container |
-| `make vet` | Run `go vet ./...` in container |
-| `make mod` | Tidy Go modules |
+| `make up` | Start runtime stack in detached mode |
+| `make down` | Controlled runtime shutdown without container removal |
 | `make test` | Run Go tests in a container |
-| `make test-cover` | Run tests with coverage gate |
-| `make build` | Containerized compile check (`go build ./...`) |
-| `make bootstrap-smoke` | Smoke-test bootstrap incl. env/config backup-restore and HOST_* overrides |
-| `make govulncheck` | Run Go vulnerability scan (`govulncheck`) in container |
-| `make sbom-go` | Generate CycloneDX SBOM for Go modules |
-| `make licenses-export` | Export dependency licenses to `licenses.csv` |
-| `make compose-logs` | Stream runtime logs |
-| `make compose-validate` | Validate runtime stack configuration |
+| `make reindex` | Rebuild semantic index in the running `rag-mcp` container |
+| `make logs` | Stream runtime logs |
+| `make doctor` | Runtime checks for running stack (compose config, reindex, index verify, health) |
 
 Interactive installer behavior:
 
-- `make install` / `make install-bootstrap` prompts in interactive terminals with three options: keep current source paths (default), use standard `./data/docs` + `./data/code`, or enter custom paths.
+- `make install` prompts in interactive terminals with three options: keep current source paths (default), use standard `./data/docs` + `./data/code`, or enter custom paths.
 - Pressing Enter keeps the currently resolved values (from explicit `HOST_DOCS_DIR` / `HOST_CODE_DIR`, then `.env`, then defaults).
 - The selected source paths are written to `.env` on the host before Docker starts.
 - Make targets remain the user-facing API; host-side shell helpers under `shell/` are internal implementation details.
@@ -143,14 +127,14 @@ All Go toolchain commands run in containers through `Makefile` targets, so a loc
 Docker-only Guardrails:
 
 - Standard local workflows use `make` targets only; direct local `go` execution is intentionally avoided.
-- CI workflows use the same containerized `make` targets for formatting, vetting, testing, build, bootstrap smoke tests, and Go security/supply-chain checks.
+- CI workflows execute quality/security checks via dedicated shell scripts under `shell/` or direct Docker long commands, independent from user-facing make targets.
 
 ## Troubleshooting & Diagnose
 
 Validate runtime configuration:
 
 ```bash
-make compose-validate
+docker compose --project-directory . -f docker/docker-compose.yml config
 ```
 
 Check service state:
@@ -176,7 +160,7 @@ make doctor
 Run index verification only:
 
 ```bash
-make doctor-verify-index
+sh ./shell/doctor-verify-index.sh
 ```
 
 ## Configuration
@@ -250,12 +234,12 @@ Recommended required checks for branch protection:
 
 Local reproduction of the required checks:
 
-- `make fmt-check`
-- `make vet`
-- `make test-cover COVERAGE_MIN=60`
-- `make build`
-- `make bootstrap-smoke`
-- `make compose-validate`
+- `sh ./shell/ci-fmt-check.sh`
+- `sh ./shell/ci-vet.sh`
+- `COVERAGE_MIN=60 sh ./shell/ci-test-cover.sh`
+- `sh ./shell/ci-build.sh`
+- `sh ./shell/bootstrap-smoke.sh`
+- `docker compose --project-directory . -f docker/docker-compose.yml config`
 
 Note: deterministic Golden-Query retrieval regression tests are tracked separately in `P0-008` and are not part of the `ci-fast` technical baseline gates.
 

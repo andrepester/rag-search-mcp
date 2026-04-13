@@ -3,6 +3,11 @@ set -eu
 
 . ./shell/lib.sh
 
+: "${GO_IMAGE:=golang:1.25.9-alpine@sha256:7a00384194cf2cb68924bbb918d675f1517357433c8541bac0ab2f929b9d5447}"
+: "${GO_BIN:=/usr/local/go/bin/go}"
+compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
+compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
+
 full_reset_raw=${FULL_RESET-0}
 is_full_reset=$(parse_bool_01 "$full_reset_raw" 0) || {
 	printf '%s\n' 'FULL_RESET must be one of: 0,1,true,false,yes,no' >&2
@@ -75,16 +80,16 @@ if [ "$is_full_reset" -eq 1 ]; then
 
 	printf 'FULL_RESET=1: removing persistent runtime paths\n  - %s\n  - %s\n' "$index_abs" "$models_abs"
 	if [ "$skip_down" -eq 0 ]; then
-		make down
+		docker compose --project-directory "$compose_project_dir" -f "$compose_file" down --remove-orphans
 	fi
 	rm -rf "$index_abs" "$models_abs"
 else
 	printf '%s\n' 'Safe clean-install: preserving HOST_INDEX_DIR and HOST_MODELS_DIR (set FULL_RESET=1 to wipe).'
 	if [ "$skip_down" -eq 0 ]; then
-		make down
+		docker compose --project-directory "$compose_project_dir" -f "$compose_file" down --remove-orphans
 	fi
 fi
 
 if [ "$skip_install" -eq 0 ]; then
-	make install
+	GO_IMAGE="$GO_IMAGE" GO_BIN="$GO_BIN" COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/install.sh
 fi
