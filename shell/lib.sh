@@ -1,10 +1,21 @@
 #!/bin/sh
 
 go_runner_image() {
+	if is_non_empty_non_ws "${GO_IMAGE-}"; then
+		printf '%s' "$GO_IMAGE"
+		return 0
+	fi
 	printf '%s' "${GO_RUNNER_IMAGE:-rag-search-mcp-go-runner:local}"
 }
 
+go_runner_bin() {
+	printf '%s' "${GO_BIN:-/usr/local/go/bin/go}"
+}
+
 build_go_runner_image() {
+	if is_non_empty_non_ws "${GO_IMAGE-}"; then
+		return 0
+	fi
 	dockerfile_path=${DOCKERFILE_PATH:-docker/Dockerfile}
 	runner_target=${GO_RUNNER_TARGET:-go-runner}
 	runner_image=$(go_runner_image)
@@ -13,12 +24,13 @@ build_go_runner_image() {
 
 run_go_runner() {
 	runner_image=$(go_runner_image)
-	docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e GOPATH=/tmp/go -e GOMODCACHE=/tmp/go/pkg/mod -e GOCACHE=/tmp/go-build -v "$(pwd):/workspace" -w /workspace "$runner_image" "$@"
+	docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e GOCACHE=/tmp/go-build -v "$(pwd):/workspace" -w /workspace "$runner_image" "$@"
 }
 
 run_go_command() {
 	build_go_runner_image
-	run_go_runner /usr/local/go/bin/go "$@"
+	runner_bin=$(go_runner_bin)
+	run_go_runner "$runner_bin" "$@"
 }
 
 is_non_empty_non_ws() {

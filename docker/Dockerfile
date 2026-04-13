@@ -10,6 +10,8 @@ COPY internal ./internal
 
 FROM base AS go-runner
 
+RUN chmod -R a+rwX /go
+
 WORKDIR /workspace
 
 FROM go-runner AS test
