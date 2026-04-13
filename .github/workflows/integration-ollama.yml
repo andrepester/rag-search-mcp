@@ -36,9 +36,6 @@ jobs:
           docker compose --project-directory . -f docker/docker-compose.yml logs rag-mcp >&2 || true
           exit 1
 
-      - name: Reindex mounted sources
-        run: make reindex
-
       - name: Smoke check MCP endpoint
         run: curl -fsS http://127.0.0.1:8765/healthz
 

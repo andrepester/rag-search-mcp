@@ -18,6 +18,14 @@ jobs:
       - name: Verify formatting
         run: sh ./shell/ci-fmt-check.sh
 
+  go-runner-overrides-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Verify GO_IMAGE/GO_BIN overrides for Go helper scripts
+        run: sh ./shell/go-runner-overrides-smoke.sh
+
   vet:
     runs-on: ubuntu-latest
     steps:

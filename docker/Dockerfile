@@ -8,7 +8,15 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 
-FROM base AS test
+FROM base AS go-runner
+
+RUN chmod -R a+rwX /go
+
+WORKDIR /workspace
+
+FROM go-runner AS test
+
+WORKDIR /src
 
 RUN go test -count=1 ./...
 
