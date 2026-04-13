@@ -171,6 +171,7 @@ Non-loopback access requires additional controls as defined in the ADR and threa
 
 | Variable | Default | Description |
 |---|---|---|
+| `RAG_HTTP_HOST` | `127.0.0.1` | MCP HTTP bind host inside the container |
 | `RAG_HTTP_PORT` | `8765` | MCP HTTP port published on the host |
 | `HOST_DOCS_DIR` | `./data/docs` | Host path mounted as docs source |
 | `HOST_CODE_DIR` | `./data/code` | Host path mounted as code source |
