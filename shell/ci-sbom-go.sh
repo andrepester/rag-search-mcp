@@ -3,5 +3,5 @@ set -eu
 
 . ./shell/lib.sh
 
-setup_go_toolchain_env
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$(pwd):/workspace" -w /workspace "$GO_IMAGE" sh -lc 'set -eu; PATH="/usr/local/go/bin:$PATH"; toolbin=/tmp/bin; mkdir -p "$toolbin"; GOBIN="$toolbin" /usr/local/go/bin/go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0; "$toolbin"/cyclonedx-gomod mod -json -licenses -output sbom-go.cdx.json'
+build_go_runner_image
+run_go_runner sh -lc 'set -eu; PATH="/usr/local/go/bin:$PATH"; toolbin=/tmp/bin; mkdir -p "$toolbin"; GOBIN="$toolbin" /usr/local/go/bin/go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0; "$toolbin"/cyclonedx-gomod mod -json -licenses -output sbom-go.cdx.json'

@@ -3,8 +3,6 @@ set -eu
 
 . ./shell/lib.sh
 
-setup_go_toolchain_env
-
 host_repo=$(pwd -P)
 host_parent=$(dirname "$host_repo")
 repo_name=$(basename "$host_repo")
@@ -74,4 +72,6 @@ for key in HOST_DOCS_DIR HOST_CODE_DIR HOST_INDEX_DIR HOST_MODELS_DIR; do
 	fi
 done
 
-"$@" "$GO_IMAGE" "$GO_BIN" run ./cmd/rag-install --repo-root "/workspace-parent/$repo_name"
+build_go_runner_image
+runner_image=$(go_runner_image)
+"$@" "$runner_image" /usr/local/go/bin/go run ./cmd/rag-install --repo-root "/workspace-parent/$repo_name"

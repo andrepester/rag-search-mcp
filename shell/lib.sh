@@ -1,20 +1,24 @@
 #!/bin/sh
 
-default_go_image() {
-	printf '%s' 'golang:1.25.9-alpine@sha256:7a00384194cf2cb68924bbb918d675f1517357433c8541bac0ab2f929b9d5447'
+go_runner_image() {
+	printf '%s' "${GO_RUNNER_IMAGE:-rag-search-mcp-go-runner:local}"
 }
 
-setup_go_toolchain_env() {
-	if [ -z "${GO_IMAGE-}" ]; then
-		GO_IMAGE=$(default_go_image)
-	fi
-	if [ -z "${GO_BIN-}" ]; then
-		GO_BIN=/usr/local/go/bin/go
-	fi
-	if [ -z "${GOFMT_BIN-}" ]; then
-		GOFMT_BIN=/usr/local/go/bin/gofmt
-	fi
-	export GO_IMAGE GO_BIN GOFMT_BIN
+build_go_runner_image() {
+	dockerfile_path=${DOCKERFILE_PATH:-docker/Dockerfile}
+	runner_target=${GO_RUNNER_TARGET:-go-runner}
+	runner_image=$(go_runner_image)
+	docker build -f "$dockerfile_path" --target "$runner_target" -t "$runner_image" .
+}
+
+run_go_runner() {
+	runner_image=$(go_runner_image)
+	docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$(pwd):/workspace" -w /workspace "$runner_image" "$@"
+}
+
+run_go_command() {
+	build_go_runner_image
+	run_go_runner /usr/local/go/bin/go "$@"
 }
 
 is_non_empty_non_ws() {

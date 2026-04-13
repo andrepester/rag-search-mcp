@@ -3,6 +3,4 @@ set -eu
 
 . ./shell/lib.sh
 
-setup_go_toolchain_env
-
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$(pwd):/workspace" -w /workspace "$GO_IMAGE" "$GO_BIN" run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+run_go_command run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...

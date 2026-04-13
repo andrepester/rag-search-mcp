@@ -100,7 +100,7 @@ Scope behavior:
 | `make clean-install` | Reinstall stack from scratch; preserves data by default, wipes index/models only with `FULL_RESET=1` |
 | `make up` | Start runtime stack in detached mode |
 | `make down` | Controlled runtime shutdown without container removal |
-| `make test` | Run Go tests via the Dockerfile `test-runner` stage |
+| `make test` | Run Go tests via the Dockerfile `go-runner` stage |
 | `make reindex` | Rebuild semantic index in the running `rag-mcp` container |
 | `make logs` | Stream runtime logs |
 | `make doctor` | Runtime checks for running stack (compose config, reindex, index verify, health) |
@@ -122,14 +122,14 @@ make clean-install FULL_RESET=1
 
 Warning: `make clean-install FULL_RESET=1` permanently deletes the host directories resolved from `HOST_INDEX_DIR` and `HOST_MODELS_DIR` before reinstalling.
 
-All Go toolchain commands run in containers through `Makefile` targets, so a local Go installation is not required for normal development flow.
-The canonical default Go toolchain image for shell helpers is defined in `shell/lib.sh` (`default_go_image`).
+All Go toolchain commands in local workflows and CI shell helpers run in containers, so a local Go installation is not required for normal development flow.
+The Dockerfile is the canonical Go toolchain image source; shell helpers build and run the shared `go-runner` stage.
 
 Docker-only Guardrails:
 
 - Standard local workflows use `make` targets only; direct local `go` execution is intentionally avoided.
 - CI workflows execute quality/security checks via dedicated shell scripts under `shell/` or direct Docker long commands.
-- `make test` and the CI coverage gate use the same Dockerfile-based test container path (`shell/dockerfile-test.sh`).
+- `make test` and the CI coverage gate use the same Dockerfile-based `go-runner` path (`shell/go-runner.sh`).
 
 ## Troubleshooting & Diagnose
 
@@ -225,7 +225,7 @@ GitHub Actions workflows:
 
 - `ci-fast`: technical quality gates with separate required jobs: `fmt`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate` (plus non-required `docker-test-stage` to validate Dockerfile test target)
 - `security-baseline`: gitleaks and `govulncheck`
-- `integration-ollama`: full runtime startup via `make install` and reindex smoke check
+- `integration-ollama`: full runtime startup via `make install` with health smoke check
 - `supply-chain`: SBOM generation, license allowlist gate, filesystem/image vulnerability scans
 
 Recommended required checks for branch protection:

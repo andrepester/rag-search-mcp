@@ -1,13 +1,10 @@
 #!/bin/sh
 set -eu
 
-. ./shell/lib.sh
-
-setup_go_toolchain_env
 compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
 compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
 
-GO_IMAGE="$GO_IMAGE" GO_BIN="$GO_BIN" sh ./shell/install-bootstrap.sh
+sh ./shell/install-bootstrap.sh
 
 docker compose --project-directory "$compose_project_dir" -f "$compose_file" up -d --build
 

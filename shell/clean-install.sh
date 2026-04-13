@@ -2,8 +2,6 @@
 set -eu
 
 . ./shell/lib.sh
-
-setup_go_toolchain_env
 compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
 compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
 
@@ -90,5 +88,5 @@ else
 fi
 
 if [ "$skip_install" -eq 0 ]; then
-	GO_IMAGE="$GO_IMAGE" GO_BIN="$GO_BIN" COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/install.sh
+	COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/install.sh
 fi
