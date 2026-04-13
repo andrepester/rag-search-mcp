@@ -74,4 +74,5 @@ done
 
 build_go_runner_image
 runner_image=$(go_runner_image)
-"$@" "$runner_image" /usr/local/go/bin/go run ./cmd/rag-install --repo-root "/workspace-parent/$repo_name"
+runner_bin=$(go_runner_bin)
+"$@" "$runner_image" "$runner_bin" run ./cmd/rag-install --repo-root "/workspace-parent/$repo_name"
