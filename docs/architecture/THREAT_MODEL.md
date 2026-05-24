@@ -10,7 +10,7 @@ Dieses Dokument beschreibt die Security-Ableitung zur ADR-Entscheidung aus `docs
 ## Umsetzungsstatus
 
 - Aktuell gilt operational `localhost-only` als freigegebener Modus.
-- `LAN-only` wird erst mit aktiver Token-Absicherung fuer Nicht-Loopback-Zugriffe freigegeben (Umsetzung ueber `[[backlog/P1-004-api-security-token-baseline|P1-004]]`).
+- `LAN-only` wird erst mit aktiver Token-Absicherung fuer Nicht-Loopback-Zugriffe freigegeben (Umsetzung ueber Vikunja `P1-004`).
 
 ## Bedrohungen (v1)
 
@@ -44,8 +44,8 @@ Dieses Dokument beschreibt die Security-Ableitung zur ADR-Entscheidung aus `docs
 - Kompromittierte Clients im erlaubten LAN-Segment
 - Token-Leakage ohne saubere Rotation/Operational Hygiene
 
-## Folgearbeiten
+## Folgearbeiten in Vikunja
 
-- `[[backlog/P1-004-api-security-token-baseline|P1-004 API Security Baseline (Token-first)]]`
-- `[[backlog/P1-003-macos-linux-harmonization|P1-003 MacOS/Linux Harmonisierung fuer Docker-Workflows]]`
-- `[[backlog/P1-009-observability-baseline|P1-009 Observability-Baseline (Metriken, Logs, Health)]]`
+- `P1-004 API Security Baseline (Token-first)`
+- `P1-003 MacOS/Linux Harmonisierung fuer Docker-Workflows`
+- `P1-009 Observability-Baseline (Metriken, Logs, Health)`
