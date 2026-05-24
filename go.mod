@@ -1,6 +1,6 @@
 module github.com/andrepester/rag-search-mcp
 
-go 1.25.9
+go 1.25.10
 
 require (
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728

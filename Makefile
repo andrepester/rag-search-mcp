@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install clean-install up down test reindex logs doctor
+.PHONY: help install clean-install up down test govulncheck reindex logs doctor
 
 FULL_RESET ?= 0
 COMPOSE_PROJECT_DIR ?= .
@@ -14,6 +14,7 @@ help:
 	@printf '  %-20s %s\n' 'make up' 'Start runtime stack in detached mode'
 	@printf '  %-20s %s\n' 'make down' 'Stop runtime stack (without removing containers)'
 	@printf '  %-20s %s\n' 'make test' 'Run Go tests via Dockerfile go-runner stage'
+	@printf '  %-20s %s\n' 'make govulncheck' 'Run govulncheck via Dockerfile go-runner stage'
 	@printf '  %-20s %s\n' 'make reindex' 'Rebuild index in the running rag-mcp container'
 	@printf '  %-20s %s\n' 'make logs' 'Tail runtime stack logs'
 	@printf '  %-20s %s\n' 'make doctor' 'Run runtime diagnostics on the running stack'
@@ -23,6 +24,9 @@ install:
 
 test:
 	@sh ./shell/go-runner.sh test -count=1 ./...
+
+govulncheck:
+	@sh ./shell/ci-govulncheck.sh
 
 up:
 	$(COMPOSE) up -d --build
