@@ -47,7 +47,7 @@ if [ "${1-}" = "install" ]; then
 	: "${GOBIN:?GOBIN must be set}"
 	mkdir -p "$GOBIN"
 	case "$pkg" in
-		github.com/google/go-licenses@v1.6.0)
+		github.com/google/go-licenses)
 			cat > "$GOBIN/go-licenses" <<'EOX'
 #!/bin/sh
 set -eu
@@ -59,7 +59,7 @@ printf '%s\n' 'example.com/module,https://example.com/license,MIT'
 EOX
 			chmod +x "$GOBIN/go-licenses"
 			;;
-		github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0)
+		github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod)
 			cat > "$GOBIN/cyclonedx-gomod" <<'EOX'
 #!/bin/sh
 set -eu
@@ -83,6 +83,18 @@ printf '%s\n' '{"bomFormat":"CycloneDX"}' > "$out"
 
 EOX
 			chmod +x "$GOBIN/cyclonedx-gomod"
+			;;
+		golang.org/x/vuln/cmd/govulncheck)
+			cat > "$GOBIN/govulncheck" <<'EOX'
+#!/bin/sh
+set -eu
+[ "${1-}" = "./..." ] || {
+	printf '%s\n' "unexpected govulncheck args: $*" >&2
+	exit 2
+}
+exit 0
+EOX
+			chmod +x "$GOBIN/govulncheck"
 			;;
 		*)
 			printf '%s\n' "unexpected go install target: $pkg" >&2
@@ -117,6 +129,7 @@ EOF
 docker build -f "$tmp_dir/Dockerfile" -t "$smoke_image" "$tmp_dir"
 
 GO_IMAGE="$smoke_image" GO_BIN=/opt/custom/go sh ./shell/ci-fmt-check.sh
+GO_IMAGE="$smoke_image" GO_BIN=/opt/custom/go sh ./shell/ci-govulncheck.sh
 GO_IMAGE="$smoke_image" GO_BIN=/opt/custom/go sh ./shell/ci-licenses-export.sh
 GO_IMAGE="$smoke_image" GO_BIN=/opt/custom/go sh ./shell/ci-sbom-go.sh
 

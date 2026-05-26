@@ -9,6 +9,12 @@ __pycache__/
 
 # Go test coverage
 coverage.out
+coverage.txt
+
+# Generated CI artifacts
+licenses.csv
+sbom-*.cdx.json
+grype-*.sarif
 
 # OS clutter
 .DS_Store

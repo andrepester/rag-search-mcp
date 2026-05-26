@@ -54,6 +54,37 @@ run_go_command() {
 	run_go_runner "$runner_bin" "$@"
 }
 
+run_go_tool() {
+	tool_pkg="$1"
+	tool_bin="$2"
+	shift 2
+	build_go_runner_image
+	runner_bin=$(go_runner_bin)
+	runner_bindir=$(go_runner_bindir)
+	runner_path_prefix=''
+	if [ -n "$runner_bindir" ]; then
+		runner_path_prefix="$runner_bindir:"
+	fi
+	tools_dir=${GO_TOOLS_DIR:-tools}
+	run_go_runner sh -lc '
+set -eu
+runner_bin="$1"
+runner_path_prefix="$2"
+tools_dir="$3"
+tool_pkg="$4"
+tool_bin="$5"
+shift 5
+PATH="${runner_path_prefix}${PATH}"
+toolbin=/tmp/bin
+mkdir -p "$toolbin"
+(
+	cd "$tools_dir"
+	GOBIN="$toolbin" "$runner_bin" install "$tool_pkg"
+)
+"$toolbin/$tool_bin" "$@"
+' sh "$runner_bin" "$runner_path_prefix" "$tools_dir" "$tool_pkg" "$tool_bin" "$@"
+}
+
 is_non_empty_non_ws() {
 	value="$1"
 	non_ws=$(printf '%s' "$value" | tr -d '[:space:]')

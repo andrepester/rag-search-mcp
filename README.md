@@ -246,6 +246,17 @@ Dependabot updates are configured for:
 - GitHub Actions
 - Docker
 
+### CI toolchain governance
+
+Delivery and security tooling is versioned separately from product runtime dependencies:
+
+- Go-based CI tools are pinned in the separate `tools` Go module. Update them with the normal Go module workflow in `tools/`; Dependabot tracks that module independently from the product module.
+- Anchore binaries used by `supply-chain` are pinned in `shell/ci-tool-versions.env` and installed by `shell/install-anchore-tools.sh`.
+- External binary downloads are verified against the upstream release checksum files before installation.
+- Filesystem and image vulnerability scans cover product/runtime artifacts; the separate `tools` module is governed through its own module metadata and Dependabot updates.
+
+The CI shell scripts and workflow YAML consume those canonical sources instead of carrying their own tool versions.
+
 ## Troubleshooting
 
 ### The index does not reflect recent file changes
