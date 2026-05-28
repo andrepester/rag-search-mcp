@@ -142,10 +142,6 @@ Scope behavior:
 | `make up` | Start the runtime stack in detached mode |
 | `make down` | Stop the runtime stack without removing containers |
 | `make test` | Run Go tests through the Dockerfile `go-runner` stage |
-| `make govulncheck` | Run runtime vulnerability checks through the Dockerfile `go-runner` stage |
-| `make mod-tidy-check` | Verify root and tools module files are tidy through `go-runner` |
-| `make toolchain-security` | Check the separate tools module dependency guardrails through `go-runner` |
-| `make security` | Run runtime and tools dependency security checks |
 | `make reindex` | Rebuild the semantic index in the running `rag-mcp` container |
 | `make logs` | Stream runtime logs |
 | `make doctor` | Run runtime diagnostics, reindex, verify index data, and check health |
@@ -219,10 +215,10 @@ Local `opencode.json` variants are ignored by Git.
 
 This repository uses a Docker-first workflow.
 
-- Use `make` targets as the primary local interface
+- Use `make` targets as the primary local interface for runtime and development workflows
 - Avoid direct local `go` execution in standard workflows
 - Use `make test` for Go tests
-- Treat shell helpers under `shell/` as internal implementation details behind the `make` targets
+- Treat shell helpers under `shell/` as internal implementation details, except documented CI and maintainer gates
 
 The Dockerfile is the canonical source for the shared Go toolchain image used in local workflows and CI.
 
@@ -236,6 +232,14 @@ Module file drift is checked with the same containerized toolchain used by CI:
 
 ```bash
 sh ./shell/ci-mod-tidy-check.sh
+```
+
+CI and maintainer gates are intentionally exposed as shell commands instead of Make targets:
+
+```bash
+sh ./shell/ci-govulncheck.sh
+sh ./shell/ci-mod-tidy-check.sh
+sh ./shell/ci-toolchain-security.sh
 ```
 
 ## CI and automation
@@ -267,7 +271,7 @@ Dependabot updates are configured for:
 Delivery and security tooling is versioned separately from product runtime dependencies:
 
 - Go-based CI tools are pinned in the separate `tools` Go module. Update them with the normal Go module workflow in `tools/`; Dependabot tracks that module independently from the product module.
-- Toolchain dependency security is checked separately from runtime reachability: `make security` runs the runtime vulnerability scan and verifies the `tools` module graph against known forbidden legacy modules and minimum patched dependency versions.
+- Toolchain dependency security is checked separately from runtime reachability: `sh ./shell/ci-govulncheck.sh` runs the runtime vulnerability scan, and `sh ./shell/ci-toolchain-security.sh` verifies the `tools` module graph against known forbidden legacy modules and minimum patched dependency versions.
 - Anchore binaries used by `supply-chain` are pinned in `shell/ci-tool-versions.env` and installed by `shell/install-anchore-tools.sh`.
 - External binary downloads are verified against the upstream release checksum files before installation.
 - Filesystem and image vulnerability scans cover product/runtime artifacts; the separate `tools` module is governed through its own module metadata and Dependabot updates.
