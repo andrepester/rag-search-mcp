@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install clean-install up down test govulncheck mod-tidy-check toolchain-security security reindex logs doctor
+.PHONY: help install clean-install up down test reindex logs doctor
 
 FULL_RESET ?= 0
 COMPOSE_PROJECT_DIR ?= .
@@ -14,10 +14,6 @@ help:
 	@printf '  %-25s %s\n' 'make up' 'Start runtime stack in detached mode'
 	@printf '  %-25s %s\n' 'make down' 'Stop runtime stack (without removing containers)'
 	@printf '  %-25s %s\n' 'make test' 'Run Go tests via Dockerfile go-runner stage'
-	@printf '  %-25s %s\n' 'make govulncheck' 'Run govulncheck via Dockerfile go-runner stage'
-	@printf '  %-25s %s\n' 'make mod-tidy-check' 'Verify module files are tidy via go-runner'
-	@printf '  %-25s %s\n' 'make toolchain-security' 'Check tools module dependency guardrails via go-runner'
-	@printf '  %-25s %s\n' 'make security' 'Run runtime and tools dependency security checks'
 	@printf '  %-25s %s\n' 'make reindex' 'Rebuild index in the running rag-mcp container'
 	@printf '  %-25s %s\n' 'make logs' 'Tail runtime stack logs'
 	@printf '  %-25s %s\n' 'make doctor' 'Run runtime diagnostics on the running stack'
@@ -27,17 +23,6 @@ install:
 
 test:
 	@sh ./shell/go-runner.sh test -count=1 ./...
-
-govulncheck:
-	@sh ./shell/ci-govulncheck.sh
-
-mod-tidy-check:
-	@sh ./shell/ci-mod-tidy-check.sh
-
-toolchain-security:
-	@sh ./shell/ci-toolchain-security.sh
-
-security: govulncheck toolchain-security
 
 up:
 	$(COMPOSE) up -d --build
