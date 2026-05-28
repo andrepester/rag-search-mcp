@@ -143,6 +143,7 @@ Scope behavior:
 | `make down` | Stop the runtime stack without removing containers |
 | `make test` | Run Go tests through the Dockerfile `go-runner` stage |
 | `make govulncheck` | Run runtime vulnerability checks through the Dockerfile `go-runner` stage |
+| `make mod-tidy-check` | Verify root and tools module files are tidy through `go-runner` |
 | `make toolchain-security` | Check the separate tools module dependency guardrails through `go-runner` |
 | `make security` | Run runtime and tools dependency security checks |
 | `make reindex` | Rebuild the semantic index in the running `rag-mcp` container |
@@ -231,11 +232,17 @@ Project automation must execute Go tooling through the Dockerfile `go-runner` st
 sh ./shell/ci-container-only-go.sh
 ```
 
+Module file drift is checked with the same containerized toolchain used by CI:
+
+```bash
+sh ./shell/ci-mod-tidy-check.sh
+```
+
 ## CI and automation
 
 GitHub Actions workflows:
 
-- `ci-fast`: `container-only-go`, `fmt`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
+- `ci-fast`: `container-only-go`, `fmt`, `mod-tidy`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
 - `security-baseline`: `gitleaks`, runtime `govulncheck`, and `toolchain-security`
 - `integration-ollama`: full runtime startup via `make install` with health smoke checks
 - `supply-chain`: SBOM generation, license allowlist gate, and filesystem/image vulnerability scans
