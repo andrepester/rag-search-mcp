@@ -222,11 +222,17 @@ This repository uses a Docker-first workflow.
 
 The Dockerfile is the canonical source for the shared Go toolchain image used in local workflows and CI.
 
+Project automation must execute Go tooling through the Dockerfile `go-runner` stage. Host-side Go project checks are unsupported because they can use a different toolchain, module cache, or dependency graph than CI. To verify this rule locally, run:
+
+```bash
+sh ./shell/ci-container-only-go.sh
+```
+
 ## CI and automation
 
 GitHub Actions workflows:
 
-- `ci-fast`: `fmt`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
+- `ci-fast`: `container-only-go`, `fmt`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
 - `security-baseline`: `gitleaks` and `govulncheck`
 - `integration-ollama`: full runtime startup via `make install` with health smoke checks
 - `supply-chain`: SBOM generation, license allowlist gate, and filesystem/image vulnerability scans
