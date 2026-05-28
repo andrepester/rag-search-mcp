@@ -244,17 +244,13 @@ GitHub Actions workflows:
 
 - `ci-fast`: `container-only-go`, `fmt`, `mod-tidy`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
 - `security-baseline`: `gitleaks`, runtime `govulncheck`, and `toolchain-security`
+- `dependency-review`: PR dependency diff review for new high or critical vulnerability findings
 - `integration-ollama`: full runtime startup via `make install` with health smoke checks
 - `supply-chain`: SBOM generation, license allowlist gate, and filesystem/image vulnerability scans
 
 Recommended required checks for branch protection:
 
-- `fmt`
-- `vet`
-- `test`
-- `build`
-- `bootstrap-smoke`
-- `compose-validate`
+Required merge gates and stable check names are documented in `docs/ci-required-checks.md`.
 
 Dependabot updates are configured for:
 
