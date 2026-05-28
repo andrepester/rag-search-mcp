@@ -142,6 +142,9 @@ Scope behavior:
 | `make up` | Start the runtime stack in detached mode |
 | `make down` | Stop the runtime stack without removing containers |
 | `make test` | Run Go tests through the Dockerfile `go-runner` stage |
+| `make govulncheck` | Run runtime vulnerability checks through the Dockerfile `go-runner` stage |
+| `make toolchain-security` | Check the separate tools module dependency guardrails through `go-runner` |
+| `make security` | Run runtime and tools dependency security checks |
 | `make reindex` | Rebuild the semantic index in the running `rag-mcp` container |
 | `make logs` | Stream runtime logs |
 | `make doctor` | Run runtime diagnostics, reindex, verify index data, and check health |
@@ -233,7 +236,7 @@ sh ./shell/ci-container-only-go.sh
 GitHub Actions workflows:
 
 - `ci-fast`: `container-only-go`, `fmt`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
-- `security-baseline`: `gitleaks` and `govulncheck`
+- `security-baseline`: `gitleaks`, runtime `govulncheck`, and `toolchain-security`
 - `integration-ollama`: full runtime startup via `make install` with health smoke checks
 - `supply-chain`: SBOM generation, license allowlist gate, and filesystem/image vulnerability scans
 
@@ -257,6 +260,7 @@ Dependabot updates are configured for:
 Delivery and security tooling is versioned separately from product runtime dependencies:
 
 - Go-based CI tools are pinned in the separate `tools` Go module. Update them with the normal Go module workflow in `tools/`; Dependabot tracks that module independently from the product module.
+- Toolchain dependency security is checked separately from runtime reachability: `make security` runs the runtime vulnerability scan and verifies the `tools` module graph against known forbidden legacy modules and minimum patched dependency versions.
 - Anchore binaries used by `supply-chain` are pinned in `shell/ci-tool-versions.env` and installed by `shell/install-anchore-tools.sh`.
 - External binary downloads are verified against the upstream release checksum files before installation.
 - Filesystem and image vulnerability scans cover product/runtime artifacts; the separate `tools` module is governed through its own module metadata and Dependabot updates.
