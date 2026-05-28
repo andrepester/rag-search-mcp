@@ -47,7 +47,7 @@ if [ "${1-}" = "install" ]; then
 	: "${GOBIN:?GOBIN must be set}"
 	mkdir -p "$GOBIN"
 	case "$pkg" in
-		github.com/google/go-licenses)
+		github.com/google/go-licenses/v2)
 			cat > "$GOBIN/go-licenses" <<'EOX'
 #!/bin/sh
 set -eu
