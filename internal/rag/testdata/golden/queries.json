@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "settings": {
+    "embedding_model": "golden-keyword-v1",
+    "chunk_size": 900,
+    "chunk_overlap": 90,
+    "default_top_k": 3,
+    "max_top_k": 20
+  },
+  "queries": [
+    {
+      "name": "installation docs",
+      "query": "How do I install and bootstrap with make install and docker compose?",
+      "scope": "docs",
+      "top_k": 3,
+      "expected": [
+        {
+          "source_path": "docs/installation.md",
+          "scope": "docs",
+          "chunk_index": 0,
+          "max_rank": 1,
+          "must_contain": ["make install", "docker compose"]
+        }
+      ]
+    },
+    {
+      "name": "architecture docs",
+      "query": "Explain the semantic retrieval architecture using MCP, Ollama embeddings, and Chroma.",
+      "scope": "docs",
+      "top_k": 3,
+      "expected": [
+        {
+          "source_path": "docs/architecture.md",
+          "scope": "docs",
+          "chunk_index": 0,
+          "max_rank": 1,
+          "must_contain": ["Ollama embeddings", "Chroma"]
+        }
+      ]
+    },
+    {
+      "name": "configuration docs",
+      "query": "Which environment variables configure chunk size, scope default, max top k, and source_filter?",
+      "scope": "docs",
+      "source_filter": "configuration",
+      "top_k": 3,
+      "expected": [
+        {
+          "source_path": "docs/configuration-security.md",
+          "scope": "docs",
+          "chunk_index": 0,
+          "max_rank": 1,
+          "must_contain": ["RAG_CHUNK_SIZE", "RAG_SCOPE_DEFAULT", "source_filter"]
+        }
+      ]
+    },
+    {
+      "name": "code chunking logic",
+      "query": "Find code for chunk size overlap paragraph splitting source_path metadata chunk index.",
+      "scope": "code",
+      "top_k": 3,
+      "expected": [
+        {
+          "source_path": "code/chunker.go",
+          "scope": "code",
+          "chunk_index": 0,
+          "max_rank": 1,
+          "must_contain": ["chunk size", "source_path metadata"]
+        }
+      ]
+    },
+    {
+      "name": "security scope docs",
+      "query": "What is the localhost loopback security boundary for LAN WAN token exposure?",
+      "scope": "docs",
+      "top_k": 3,
+      "expected": [
+        {
+          "source_path": "docs/configuration-security.md",
+          "scope": "docs",
+          "chunk_index": 0,
+          "max_rank": 1,
+          "must_contain": ["localhost-only loopback", "WAN exposure"]
+        }
+      ]
+    }
+  ]
+}
