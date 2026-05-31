@@ -284,6 +284,8 @@ Rebuild it:
 make reindex
 ```
 
+The architecture decision for incompatible index, ingestion, and query changes is also reindex-first: old index artifacts do not require a migration path when they can be rebuilt from mounted sources. See `docs/architecture/RAG-SEARCH-MCP-ADR-2026-05-31-reindex-first-schema-evolution.md`.
+
 ### `make doctor` or `make reindex` says the stack is not running
 
 Start the runtime first:
