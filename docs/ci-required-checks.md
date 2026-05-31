@@ -6,18 +6,16 @@ require the stable check names listed here before merge.
 
 ## Branch Protection Audit
 
-Audit date: 2026-05-28.
+Audit date: 2026-05-31.
 
-`main` branch protection exists, but required status checks are not enabled yet.
-The GitHub API endpoint for required status checks returned `404 Required status
-checks not enabled`.
-
-Repository admins should enable:
+`main` branch protection must require:
 
 - Require a pull request before merging.
 - Require status checks to pass before merging.
 - Require branches to be up to date before merging.
 - Required status checks from the table below.
+
+Required status checks were enabled through the GitHub API on 2026-05-31.
 
 Do not rename required workflow job IDs without updating this file and branch
 protection in the same change.
@@ -38,6 +36,7 @@ protection in the same change.
 | `security-baseline` | `govulncheck` | Runtime vulnerability reachability scan passes. |
 | `security-baseline` | `toolchain-security` | Tools module dependency guardrails pass. |
 | `dependency-review` | `dependency-review` | New PR dependency changes do not introduce high or critical vulnerabilities. |
+| `supply-chain` | `container-policy` | Container base images are digest-pinned and vulnerability scan exceptions are blocked. |
 | `supply-chain` | `sbom-and-licenses` | Go SBOM generation and license allowlist pass. |
 | `supply-chain` | `vulnerability-scan` | Filesystem and image vulnerability scans pass. |
 | `integration-ollama` | `ollama-e2e` | Full runtime startup and health smoke pass. |

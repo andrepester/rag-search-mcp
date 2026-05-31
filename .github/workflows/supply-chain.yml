@@ -13,6 +13,18 @@ permissions:
   security-events: write
 
 jobs:
+  container-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Verify container supply-chain policy
+        run: sh ./shell/ci-container-supply-chain-policy.sh
+
+      - name: Verify container policy red/green smoke
+        run: sh ./shell/ci-container-supply-chain-policy-smoke.sh
+
   sbom-and-licenses:
     runs-on: ubuntu-latest
     steps:
@@ -82,7 +94,7 @@ jobs:
           path: sbom-fs.cdx.json
 
       - name: Grype filesystem scan (SARIF)
-        run: grype sbom:sbom-fs.cdx.json --only-fixed --fail-on high -o sarif > grype-fs.sarif
+        run: grype sbom:sbom-fs.cdx.json --fail-on high -o sarif > grype-fs.sarif
 
       - name: Upload filesystem SARIF
         if: always()
@@ -100,4 +112,4 @@ jobs:
           path: sbom-image.cdx.json
 
       - name: Grype image scan
-        run: grype sbom:sbom-image.cdx.json --only-fixed --fail-on high -o table
+        run: grype sbom:sbom-image.cdx.json --fail-on high -o table

@@ -240,6 +240,8 @@ CI and maintainer gates are intentionally exposed as shell commands instead of M
 sh ./shell/ci-govulncheck.sh
 sh ./shell/ci-mod-tidy-check.sh
 sh ./shell/ci-toolchain-security.sh
+sh ./shell/ci-container-supply-chain-policy.sh
+sh ./shell/ci-container-supply-chain-policy-smoke.sh
 ```
 
 ## CI and automation
@@ -250,11 +252,12 @@ GitHub Actions workflows:
 - `security-baseline`: `gitleaks`, runtime `govulncheck`, and `toolchain-security`
 - `dependency-review`: PR dependency diff review for new high or critical vulnerability findings
 - `integration-ollama`: full runtime startup via `make install` with health smoke checks
-- `supply-chain`: SBOM generation, license allowlist gate, and filesystem/image vulnerability scans
+- `supply-chain`: container policy guard, SBOM generation, license allowlist gate, and filesystem/image vulnerability scans
 
 Recommended required checks for branch protection:
 
 Required merge gates and stable check names are documented in `docs/ci-required-checks.md`.
+Container supply-chain policy, base-image pinning, and no-exception vulnerability gate rules are documented in `docs/container-supply-chain-security.md`.
 
 Dependabot updates are configured for:
 
@@ -270,7 +273,9 @@ Delivery and security tooling is versioned separately from product runtime depen
 - Toolchain dependency security is checked separately from runtime reachability: `sh ./shell/ci-govulncheck.sh` runs the runtime vulnerability scan, and `sh ./shell/ci-toolchain-security.sh` verifies the `tools` module graph against known forbidden legacy modules and minimum patched dependency versions.
 - Anchore binaries used by `supply-chain` are pinned in `shell/ci-tool-versions.env` and installed by `shell/install-anchore-tools.sh`.
 - External binary downloads are verified against the upstream release checksum files before installation.
-- Filesystem and image vulnerability scans cover product/runtime artifacts; the separate `tools` module is governed through its own module metadata and Dependabot updates.
+- Filesystem and image vulnerability scans cover product/runtime artifacts, block high and critical findings even when no fix is available, and do not allow local vulnerability exceptions.
+- Dockerfile base images are pinned by digest. Update the readable tag and digest together, then rerun the container policy and scan gates.
+- The separate `tools` module is governed through its own module metadata and Dependabot updates.
 
 The CI shell scripts and workflow YAML consume those canonical sources instead of carrying their own tool versions.
 
