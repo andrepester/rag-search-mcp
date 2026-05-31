@@ -1,36 +1,36 @@
-# ADR: Reindex-first fuer Index-Schema-Evolution
+# ADR: Reindex-first Index Schema Evolution
 
-| Feld | Inhalt |
+| Field | Content |
 |---|---|
 | ID | RAG-SEARCH-MCP-ADR-2026-05-31 |
-| Name | Reindex-first als legitimen Pfad fuer inkompatible Index- und Schemaaenderungen festlegen |
-| Status | Angenommen |
-| Fragestellung | Wie geht `rag-search-mcp` mit inkompatiblen Aenderungen an Index, Ingestion oder Query-Annahmen um: explizite Migration alter Index-Artefakte oder kompletter Reindex? |
-| Kontext / Randbedingungen | `rag-search-mcp` ist ein kleines, privat betriebenes Docker-first-Projekt. Der Index wird aus gemounteten docs- und code-Quellen, Konfiguration, Chunking-Regeln, Embedding-Modell und Metadaten reproduzierbar aufgebaut. Persistierte Index-Artefakte sind Betriebsdaten, aber keine primaere Quelle der Wahrheit. Vikunja `#12` hat am 2026-05-31 entschieden, dass kein eigener Index-Schema-Migrationspfad umgesetzt wird. `#25` dokumentiert die daraus folgende Architekturentscheidung fuer Ingestion und Query. |
-| Entscheidung & Begrundung | Inkompatible Aenderungen an Chunking, Metadaten, Embedding-Modell, Collection-/Source-Struktur oder Query-Annahmen werden durch einen vollstaendigen Reindex behandelt. Ein Reindex ist in diesem Projekt legitim und der gewuenschte Betriebsweg. Das reduziert Migrationskomplexitaet, vermeidet langlebige Kompatibilitaetslast fuer alte Index-Artefakte und passt zur vorhandenen Make-/Runtime-Oberflaeche (`make reindex`, `rag_reindex`, `make install`, `make doctor`). |
-| Alternativen | 1) Explizite Schema-Versionen und Migrationen fuer bestehende Index-Artefakte: verworfen, weil Aufwand und Fehlerrisiko fuer den aktuellen privaten Betriebsumfang hoeher sind als der Nutzen. 2) Rueckwaertskompatibilitaet alter Indexe ohne Reindex garantieren: verworfen, weil Chunking, Embeddings und Metadaten eng an Code und Fixture-Stand gekoppelt sind. 3) Vollstaendiger Reset von Index und Modellen bei jeder Aenderung: verworfen, weil Modelle unabhaengig vom Index persistieren duerfen und nicht jede Aenderung Modell-Reset erfordert. |
-| Datum / Dokumentation | 2026-05-31; README Troubleshooting; Vikunja-Backlog-Items: `#12`, `#25` |
-| Akteure | Nutzer (Produktentscheidung Reindex legitim), OpenCode Assistant (Dokumentation) |
+| Name | Use reindex-first as the approved path for incompatible index and schema changes |
+| Status | Accepted |
+| Decision Question | How should `rag-search-mcp` handle incompatible changes to the index, ingestion, or query assumptions: explicit migration of old index artifacts, or a full reindex? |
+| Context / Constraints | `rag-search-mcp` is a small, privately operated Docker-first project. The index is reproducibly built from mounted documentation and code sources, configuration, chunking rules, the embedding model, and metadata. Persisted index artifacts are operational state, not the primary source of truth. The product decision recorded in Vikunja `#12` on 2026-05-31 is that the project will not implement a dedicated index schema migration path. `#25` records the resulting architecture decision for ingestion and query behavior. |
+| Decision & Rationale | Incompatible changes to chunking, metadata, the embedding model, collection/source layout, or query assumptions are handled by a full reindex. In this project, reindexing is legitimate and is the intended operational path. This reduces migration complexity, avoids a long-lived compatibility burden for old index artifacts, and fits the existing Make and runtime interface (`make reindex`, `rag_reindex`, `make install`, `make doctor`). |
+| Alternatives | 1) Explicit schema versions and migrations for existing index artifacts: rejected because the effort and failure risk are higher than the value for the current private operating model. 2) Guarantee backward compatibility for old indexes without reindexing: rejected because chunking, embeddings, and metadata are tightly coupled to the code and fixture state. 3) Fully reset both index and models for every incompatible change: rejected because model persistence is independent from the index, and not every index change requires a model reset. |
+| Date / Documentation | 2026-05-31; README troubleshooting; Vikunja backlog items: `#12`, `#25` |
+| Actors | User (product decision that reindexing is legitimate), OpenCode Assistant (documentation) |
 
-## Annahmen
+## Assumptions
 
-- Die gemounteten docs- und code-Quellen bleiben die primaere Quelle der Wahrheit.
-- Index-Artefakte koennen aus Quellen, Konfiguration und Embedding-Modell neu aufgebaut werden.
-- Der aktuelle Betriebsumfang braucht keine stabilen Upgrade-Garantien fuer alte Index-Formate.
-- `HOST_MODELS_DIR` und Modellpersistenz sind vom Index-Rebuild getrennt zu betrachten.
+- Mounted documentation and code sources remain the primary source of truth.
+- Index artifacts can be rebuilt from sources, configuration, and the embedding model.
+- The current operating model does not require stable upgrade guarantees for old index formats.
+- `HOST_MODELS_DIR` and model persistence are separate from the index rebuild lifecycle.
 
-## Konsequenzen / Betriebsimplikationen
+## Consequences / Operational Implications
 
-- Neue inkompatible Index- oder Query-Aenderungen muessen keinen Migrationscode fuer alte Index-Artefakte mitliefern.
-- Doku, Tests und CI duerfen fuer inkompatible Aenderungen einen frisch erzeugten Index voraussetzen.
-- Golden-Query- und Fixture-basierte Tests sollen den Index im Testpfad reproduzierbar neu erzeugen, statt alte Index-Versionen zu migrieren.
-- Release- oder PR-Notizen muessen bei inkompatiblen Aenderungen klar auf den noetigen Reindex hinweisen.
-- Backup-/Restore-Fragen fuer nicht regenerierbare Betriebsdaten sind nicht durch diese Entscheidung geloest.
-- Wenn das Projekt spaeter stabile Upgrade-Garantien, Mehrnutzerbetrieb oder externe Releases mit Datenhaltungsversprechen braucht, muss diese Entscheidung neu bewertet werden.
+- New incompatible index or query changes do not need to include migration code for old index artifacts.
+- Documentation, tests, and CI may assume a freshly generated index for incompatible changes.
+- Golden-query and fixture-based tests should build their index reproducibly in the test path instead of migrating older index versions.
+- Release notes or PR descriptions for incompatible changes must clearly call out the required reindex.
+- Backup and restore concerns for non-regenerable operational data are not addressed by this decision.
+- If the project later needs stable upgrade guarantees, multi-user operation, or external releases with data-retention promises, this decision must be revisited.
 
-## Validierung / Nachweis
+## Validation / Evidence
 
-- Nach inkompatiblen Aenderungen ist ein erfolgreicher `make reindex` bzw. `rag_reindex` der erwartete Nachweis fuer einen gueltigen Index.
-- `make doctor` darf Reindex/Index-Verifikation als Betriebscheck nutzen, ohne alte Index-Artefakte migrieren zu muessen.
-- Tests fuer Retrieval-Regressionen erzeugen ihren Fixture-Index frisch und dokumentieren Modell, Scope, Top-K, Chunking und Fixture-Stand.
-- Doku und Backlog duerfen nicht mehr voraussetzen, dass ein expliziter Index-Migrationspfad fuer v1 existiert.
+- After incompatible changes, a successful `make reindex` or `rag_reindex` is the expected evidence of a valid index.
+- `make doctor` may use reindexing and index verification as operational checks without migrating old index artifacts.
+- Retrieval regression tests generate their fixture index from scratch and document the model, scope, top-k, chunking, and fixture state.
+- Documentation and backlog items must no longer assume that v1 has an explicit index migration path.

@@ -1,53 +1,53 @@
-# Threat Model v1 (kompakt)
+# Threat Model v1 (compact)
 
-Dieses Dokument beschreibt die Security-Ableitung zur ADR-Entscheidung aus `docs/architecture/RAG-SEARCH-MCP-ADR-2026-04-11-lan-betriebsmodus.md`.
+This document captures the security implications of the ADR decision in `docs/architecture/RAG-SEARCH-MCP-ADR-2026-04-11-lan-operating-mode.md`.
 
 ## Scope
 
-- Endpunkte: `/mcp`, `/healthz`
-- Betriebsmodus gemaess ADR: `localhost-only` (Default), `LAN-only` (Opt-in)
+- Endpoints: `/mcp`, `/healthz`
+- Operating mode defined by the ADR: `localhost-only` (default), `LAN-only` (opt-in)
 
-## Umsetzungsstatus
+## Implementation Status
 
-- Default-Installationen bleiben operational `localhost-only`.
-- `LAN-only` ist ein expliziter Opt-in fuer kontrollierte lokale Netze.
-- Token-basierte API-Absicherung fuer Nicht-Loopback-Zugriffe wird in v1 nicht als Standardfluss oder Freigabe-Gate umgesetzt. Diese Produktentscheidung wurde am 2026-05-28 in Vikunja `#16` dokumentiert.
+- Default installations operate in `localhost-only` mode.
+- `LAN-only` is an explicit opt-in for controlled local networks.
+- Token-based API protection for non-loopback access is not implemented as a standard flow or release gate in v1. This product decision was documented in Vikunja `#16` on 2026-05-28.
 
-## Bedrohungen (v1)
+## Threats (v1)
 
-- Unautorisierte Zugriffe von Clients im LAN
-- Fehlkonfiguration durch zu breite Exposition (z. B. WAN/oeffentliche Erreichbarkeit)
-- Kompromittierte LAN-Clients mit legitimer Netznaehe
+- Unauthorized access from clients on the LAN
+- Misconfiguration that exposes the service too broadly, such as WAN or public reachability
+- Compromised LAN clients with legitimate network proximity
 
-## Verbindliche Controls
+## Required Controls
 
-- Netzgrenzen: primaer Docker/Host/Firewall, nur freigegebene Netze im LAN-Opt-in
-- Authentisierung: keine Token-Pflicht fuer den aktuellen v1-LAN-Opt-in; Betreiber akzeptieren die lokale LAN-Trust-Boundary bewusst
-- CORS: kein permissiver Default
-- Discovery: keine automatische Service Discovery in v1
+- Network boundaries: primarily enforced through Docker, the host, and firewall rules; LAN opt-in allows only approved networks.
+- Authentication: no token requirement for the current v1 LAN opt-in; operators deliberately accept the local LAN trust boundary.
+- CORS: no permissive default.
+- Discovery: no automatic service discovery in v1.
 
-## Test-/Compliance-Checks
+## Test / Compliance Checks
 
-- `localhost-default`: mit Default-Config ist Zugriff auf `/mcp` nur lokal erfolgreich.
-- `LAN-opt-in`: nur mit expliziter Non-Loopback-Bind/Publish-Konfiguration und dokumentierter Source-Netzgrenze.
-- `Auth`: Doku und Konfiguration duerfen keine aktive Token-Absicherung fuer v1-LAN-Opt-in voraussetzen.
-- `Out-of-scope`: keine Exposition ueber WAN/oeffentliche Interfaces, kein VPN/Overlay-Zugriff ohne neues Threat Model.
+- `localhost-default`: with the default configuration, `/mcp` is reachable only locally.
+- `LAN-opt-in`: requires explicit non-loopback bind/publish configuration and a documented source-network boundary.
+- `Auth`: documentation and configuration must not assume active token protection for v1 LAN opt-in.
+- `Out-of-scope`: no exposure through WAN/public interfaces, and no VPN/overlay access without a new threat model.
 
 ## Out-of-Scope (v1)
 
-- WAN/Internet-Exposition
-- VPN/Overlay-Access ohne separates Threat Model
-- Offener Reverse-Proxy/Ingress ins Internet
+- WAN/Internet exposure
+- VPN/overlay access without a separate threat model
+- Open reverse proxy or ingress to the Internet
 
-## Restrisiken
+## Residual Risks
 
-- Fehlkonfiguration auf Host-/Firewall-Ebene
-- Kompromittierte Clients im erlaubten LAN-Segment
-- Unautorisierte Nutzung durch erreichbare LAN-Clients, weil keine Applikations-Token-Pflicht besteht
-- Spaetere Web-, WAN-, VPN- oder Overlay-Szenarien koennen nicht auf diese v1-Risikoakzeptanz gestuetzt werden
+- Misconfiguration at the host or firewall layer
+- Compromised clients inside the allowed LAN segment
+- Unauthorized use by reachable LAN clients because there is no application-level token requirement
+- Future web, WAN, VPN, or overlay scenarios cannot rely on this v1 risk acceptance
 
-## Folgearbeiten in Vikunja
+## Follow-up Work in Vikunja
 
-- `#16 API Security Baseline (Token-first)` ist zurueckgestellt und kein v1-Freigabe-Gate
-- `P1-003 MacOS/Linux Harmonisierung fuer Docker-Workflows`
-- `P1-009 Observability-Baseline (Metriken, Logs, Health)`
+- `#16 API Security Baseline (Token-first)` is deferred and is not a v1 release gate.
+- `P1-003 macOS/Linux harmonization for Docker workflows`
+- `P1-009 Observability baseline (metrics, logs, health)`
