@@ -29,6 +29,7 @@ protection in the same change.
 | `ci-fast` | `fmt` | Go formatting is clean in the container runner. |
 | `ci-fast` | `vet` | Go vet is clean in the container runner. |
 | `ci-fast` | `test` | Unit tests and coverage gate pass in the container runner. |
+| `ci-fast` | `golden-queries` | Deterministic retrieval golden queries pass with a reviewable diff report. |
 | `ci-fast` | `build` | Project packages build in the container runner. |
 | `ci-fast` | `bootstrap-smoke` | Bootstrap config smoke test passes. |
 | `ci-fast` | `compose-validate` | Docker Compose configuration is valid. |

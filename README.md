@@ -239,6 +239,7 @@ CI and maintainer gates are intentionally exposed as shell commands instead of M
 ```bash
 sh ./shell/ci-govulncheck.sh
 sh ./shell/ci-mod-tidy-check.sh
+sh ./shell/ci-golden-queries.sh
 sh ./shell/ci-toolchain-security.sh
 sh ./shell/ci-container-supply-chain-policy.sh
 sh ./shell/ci-container-supply-chain-policy-smoke.sh
@@ -248,7 +249,7 @@ sh ./shell/ci-container-supply-chain-policy-smoke.sh
 
 GitHub Actions workflows:
 
-- `ci-fast`: `container-only-go`, `fmt`, `mod-tidy`, `vet`, `test`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
+- `ci-fast`: `container-only-go`, `fmt`, `mod-tidy`, `vet`, `test`, `golden-queries`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
 - `security-baseline`: `gitleaks`, runtime `govulncheck`, and `toolchain-security`
 - `dependency-review`: PR dependency diff review for new high or critical vulnerability findings
 - `integration-ollama`: full runtime startup via `make install` with health smoke checks
@@ -258,6 +259,24 @@ Recommended required checks for branch protection:
 
 Required merge gates and stable check names are documented in `docs/ci-required-checks.md`.
 Container supply-chain policy, base-image pinning, and no-exception vulnerability gate rules are documented in `docs/container-supply-chain-security.md`.
+
+### Golden query updates
+
+Deterministic retrieval regression coverage lives under `internal/rag/testdata/golden/`.
+The golden suite uses small docs and code fixtures, `queries.json`, a fresh
+fixture index, fixed chunking and top-k settings, and a controlled
+`golden-keyword-v1` embedding model inside the Go test path.
+
+Run the same gate locally and in CI with:
+
+```bash
+sh ./shell/ci-golden-queries.sh
+```
+
+When retrieval behavior changes intentionally, update the relevant fixture or
+`queries.json` expectation in the same pull request, include the reason in the
+review notes, and keep the generated failure report reviewable by preserving the
+query name, expected source, actual ranked sources, and snippets.
 
 Dependabot updates are configured for:
 
