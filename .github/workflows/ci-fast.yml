@@ -60,6 +60,14 @@ jobs:
           COVERAGE_MIN: "60"
         run: sh ./shell/ci-test-cover.sh
 
+  golden-queries:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Deterministic golden query regression test
+        run: sh ./shell/ci-golden-queries.sh
+
   build:
     runs-on: ubuntu-latest
     steps:
