@@ -29,6 +29,8 @@ func TestCheckReportsFatalRuntimeAndPathErrors(t *testing.T) {
 		"RAG_CHUNK_SIZE=10",
 		"RAG_CHUNK_OVERLAP=10",
 		"RAG_ENABLE_CODE_INGEST=maybe",
+		"RAG_LOG_LEVEL=noisy",
+		"RAG_LOG_FORMAT=xml",
 		"HOST_INDEX_DIR=/",
 		"",
 	}, "\n"))
@@ -48,6 +50,8 @@ func TestCheckReportsFatalRuntimeAndPathErrors(t *testing.T) {
 		"RAG_HTTP_PORT_INTEGER",
 		"CHUNK_OVERLAP_RANGE",
 		"RAG_ENABLE_CODE_INGEST_BOOLEAN",
+		"RAG_LOG_LEVEL_VALUE",
+		"RAG_LOG_FORMAT_VALUE",
 		"HOST_INDEX_DIR_UNSAFE_ROOT",
 	} {
 		if !hasFinding(report, SeverityError, code) {
@@ -221,6 +225,8 @@ func TestCheckResolvesRelativeHostPathsAgainstHostRepoRoot(t *testing.T) {
 		"RAG_CHUNK_SIZE=1200",
 		"RAG_CHUNK_OVERLAP=200",
 		"RAG_MAX_TOP_K=50",
+		"RAG_LOG_LEVEL=info",
+		"RAG_LOG_FORMAT=json",
 		"",
 	}, "\n"))
 
@@ -268,6 +274,8 @@ func TestCheckKeepsHostPathSafetyWhenUsingHostRepoRoot(t *testing.T) {
 		"RAG_CHUNK_SIZE=1200",
 		"RAG_CHUNK_OVERLAP=200",
 		"RAG_MAX_TOP_K=50",
+		"RAG_LOG_LEVEL=info",
+		"RAG_LOG_FORMAT=json",
 		"",
 	}, "\n"))
 
@@ -394,6 +402,8 @@ func newConfigDoctorRepo(t *testing.T) string {
 		"RAG_CHUNK_SIZE=1200",
 		"RAG_CHUNK_OVERLAP=200",
 		"RAG_MAX_TOP_K=50",
+		"RAG_LOG_LEVEL=info",
+		"RAG_LOG_FORMAT=json",
 		"",
 	}, "\n"))
 	return repoRoot

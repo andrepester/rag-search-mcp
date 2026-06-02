@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -34,7 +38,7 @@ func TestRunConfigError(t *testing.T) {
 		return config.Config{}, errors.New("bad env")
 	}
 
-	err := run(context.Background(), func(string, ...any) {})
+	err := run(context.Background(), discardLogger())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -66,15 +70,28 @@ func TestRunSuccess(t *testing.T) {
 		}}
 	}
 
-	logged := ""
-	err := run(context.Background(), func(format string, args ...any) {
-		logged = format
-	})
+	var logs bytes.Buffer
+	err := run(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
 	if err != nil {
 		t.Fatalf("run() failed: %v", err)
 	}
-	if !strings.Contains(logged, "reindex complete") {
-		t.Fatalf("expected completion log, got %q", logged)
+
+	var completion map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("unmarshal log line: %v\n%s", err, line)
+		}
+		if record["event"] == "reindex_complete" {
+			completion = record
+			break
+		}
+	}
+	if completion == nil {
+		t.Fatalf("missing reindex_complete log in %s", logs.String())
+	}
+	if completion["chunks"] != float64(3) {
+		t.Fatalf("chunks = %v, want 3", completion["chunks"])
 	}
 }
 
@@ -110,4 +127,17 @@ func TestReindexWithRetryTimeout(t *testing.T) {
 	}}); err == nil {
 		t.Fatal("expected timeout error")
 	}
+}
+
+func TestDependencyForReindexError(t *testing.T) {
+	if got := dependencyForReindexError(errors.New("embed batch: failed")); got != "ollama" {
+		t.Fatalf("dependency = %q, want ollama", got)
+	}
+	if got := dependencyForReindexError(errors.New("ensure collection before reset: failed")); got != "chroma" {
+		t.Fatalf("dependency = %q, want chroma", got)
+	}
+}
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

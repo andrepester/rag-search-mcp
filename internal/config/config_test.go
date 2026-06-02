@@ -37,10 +37,16 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	if cfg.Port != 8765 {
 		t.Fatalf("Port = %d, want 8765", cfg.Port)
 	}
+	if cfg.LogLevel != "info" {
+		t.Fatalf("LogLevel = %q, want info", cfg.LogLevel)
+	}
+	if cfg.LogFormat != "json" {
+		t.Fatalf("LogFormat = %q, want json", cfg.LogFormat)
+	}
 }
 
 func TestLoadValidation(t *testing.T) {
-	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_ENABLE_CODE_INGEST"} {
+	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_ENABLE_CODE_INGEST", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT"} {
 		_ = os.Unsetenv(key)
 	}
 
@@ -78,5 +84,17 @@ func TestLoadValidation(t *testing.T) {
 	t.Setenv("RAG_ENABLE_CODE_INGEST", "not-bool")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected validation error for bool")
+	}
+
+	t.Setenv("RAG_ENABLE_CODE_INGEST", "true")
+	t.Setenv("RAG_LOG_LEVEL", "invalid")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for log level")
+	}
+
+	t.Setenv("RAG_LOG_LEVEL", "info")
+	t.Setenv("RAG_LOG_FORMAT", "yaml")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for log format")
 	}
 }

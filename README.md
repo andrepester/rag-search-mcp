@@ -163,6 +163,50 @@ make clean-install FULL_RESET=1
 
 `make clean-install FULL_RESET=1` permanently deletes the host directories resolved from `HOST_INDEX_DIR` and `HOST_MODELS_DIR` before reinstalling.
 
+### Observability baseline
+
+`rag-mcp` and `rag-index` write structured runtime logs to stdout. Docker Compose
+collects stdout and stderr from all containers, so `make logs` shows the structured
+runtime logs together with Chroma and Ollama container output. Chroma and Ollama log
+formats are owned by those images and are not normalized by this project.
+
+Runtime logs are JSON by default and use stable event names:
+
+| Event | Meaning |
+|---|---|
+| `service_start` | `rag-mcp` finished initialization and is listening |
+| `tool_call` | MCP tool completed successfully or returned a normal response |
+| `tool_error` | MCP tool failed or returned an application-level error |
+| `reindex_start` | Reindex started from CLI or MCP |
+| `reindex_complete` | Reindex finished with file and chunk counts |
+| `reindex_error` | CLI reindex failed |
+| `dependency_unhealthy` | `/readyz` found an unhealthy dependency |
+
+Common log fields include `component`, `event`, `tool`, `scope`, `top_k`,
+`matches`, `sources`, `files`, `docs_files`, `code_files`, `chunks`,
+`duration_ms`, `dependency`, and `hint`. Logs intentionally do not include request
+bodies, query text, chunk text, embeddings, or result snippets.
+
+Metrics and health endpoints:
+
+- `/healthz`: liveness only; returns `ok` when the HTTP process can respond
+- `/readyz`: readiness; returns JSON dependency status for Chroma and Ollama, and
+  uses HTTP `503` when either dependency is unavailable
+- `/metrics`: Prometheus text metrics for MCP tool calls, MCP-triggered reindex
+  runs, and last observed dependency readiness
+
+Available metrics:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `rag_mcp_tool_calls_total` | counter | `tool`, `status` |
+| `rag_mcp_reindex_runs_total` | counter | `trigger`, `status` |
+| `rag_mcp_readiness_dependency_up` | gauge | `dependency` |
+
+CLI and shell commands keep their automation-friendly stream semantics: normal
+reports go to stdout, and command errors go to stderr. The structured runtime log
+baseline applies to `rag-mcp` and `rag-index`.
+
 ## Configuration
 
 ### Security boundary for v1
@@ -196,6 +240,8 @@ boundary.
 | `RAG_CHUNK_SIZE` | `1200` | Chunk size in characters |
 | `RAG_CHUNK_OVERLAP` | `200` | Chunk overlap in characters |
 | `RAG_MAX_TOP_K` | `50` | Upper bound for search `top_k` |
+| `RAG_LOG_LEVEL` | `info` | Runtime log level: `debug`, `info`, `warn`, or `error` |
+| `RAG_LOG_FORMAT` | `json` | Runtime log format for `rag-mcp` and `rag-index`: `json` or `text` |
 | `OLLAMA_HOST` | `http://ollama:11434` | Embedding endpoint used by `rag-mcp` |
 | `OLLAMA_PORT` | `11434` | Host port mapped to the Ollama container |
 | `EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
@@ -357,6 +403,19 @@ make install
 Fix `error` findings first; they stop the doctor run before runtime checks. Review
 `warning` findings such as stale `opencode.json` ports or missing optional paths, then
 rerun `make doctor`.
+
+### `/readyz` reports Chroma or Ollama as unhealthy
+
+Check the `dependency` and `hint` fields in the `dependency_unhealthy` log event.
+For Chroma issues, verify the `chroma` container, `RAG_CHROMA_*` settings, and
+index persistence path. For Ollama issues, verify the `ollama` container,
+`OLLAMA_HOST`, and whether the embedding model has been pulled.
+
+Run the full diagnostic path after fixing dependencies:
+
+```bash
+make doctor
+```
 
 ### I need to reset persisted runtime data
 
