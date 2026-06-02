@@ -184,7 +184,9 @@ Runtime logs are JSON by default and use stable event names:
 
 Common log fields include `component`, `event`, `tool`, `scope`, `top_k`,
 `matches`, `sources`, `files`, `docs_files`, `code_files`, `chunks`,
-`duration_ms`, `dependency`, and `hint`. Logs intentionally do not include request
+`duration_ms`, `dependency`, and `hint`. CLI `reindex_start` logs also include
+the configured `docs_dir` and `code_dir` source roots so operators can identify
+which source configuration a run used. Logs intentionally do not include request
 bodies, query text, chunk text, embeddings, or result snippets.
 
 Metrics and health endpoints:
