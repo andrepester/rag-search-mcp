@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/andrepester/rag-search-mcp/internal/config"
 	"github.com/andrepester/rag-search-mcp/internal/ingest"
+	"github.com/andrepester/rag-search-mcp/internal/observability"
 	"github.com/andrepester/rag-search-mcp/internal/rag"
 )
 
@@ -30,6 +34,26 @@ func (fakeRAGService) ListSources(context.Context, string) (rag.ListSourcesRespo
 
 func (fakeRAGService) Reindex(context.Context) (ingest.Stats, error) {
 	return ingest.Stats{}, nil
+}
+
+func (fakeRAGService) CheckReadiness(context.Context) observability.ReadinessReport {
+	return observability.NewReadinessReport([]observability.DependencyStatus{
+		{Name: "chroma", Status: observability.StatusOK},
+		{Name: "ollama", Status: observability.StatusOK},
+	})
+}
+
+type failingReadinessService struct{}
+
+func (failingReadinessService) CheckReadiness(context.Context) observability.ReadinessReport {
+	return observability.NewReadinessReport([]observability.DependencyStatus{
+		{
+			Name:   "ollama",
+			Status: observability.StatusError,
+			Error:  "connection refused",
+			Hint:   observability.DependencyHint("ollama"),
+		},
+	})
 }
 
 func TestLimitRequestBodyMiddleware(t *testing.T) {
@@ -65,7 +89,7 @@ func TestRunConfigError(t *testing.T) {
 		return config.Config{}, errors.New("broken env")
 	}
 
-	err := run(func(string, ...any) {})
+	err := run(discardLogger())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -91,7 +115,7 @@ func TestRunServiceInitError(t *testing.T) {
 		return nil, errors.New("chroma down")
 	}
 
-	err := run(func(string, ...any) {})
+	err := run(discardLogger())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -120,7 +144,7 @@ func TestRunServerError(t *testing.T) {
 		return errors.New("bind failed")
 	}
 
-	err := run(func(string, ...any) {})
+	err := run(discardLogger())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -149,7 +173,7 @@ func TestRunServerClosedIsSuccess(t *testing.T) {
 		return http.ErrServerClosed
 	}
 
-	if err := run(func(string, ...any) {}); err != nil {
+	if err := run(discardLogger()); err != nil {
 		t.Fatalf("run() failed: %v", err)
 	}
 }
@@ -157,7 +181,7 @@ func TestRunServerClosedIsSuccess(t *testing.T) {
 func TestNewMuxHealthz(t *testing.T) {
 	mux := newMux(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
-	}))
+	}), fakeRAGService{}, discardLogger(), observability.NewMetrics())
 
 	healthReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	healthRes := httptest.NewRecorder()
@@ -174,6 +198,43 @@ func TestNewMuxHealthz(t *testing.T) {
 	mux.ServeHTTP(mcpRes, mcpReq)
 	if mcpRes.Code != http.StatusTeapot {
 		t.Fatalf("mcp status = %d, want %d", mcpRes.Code, http.StatusTeapot)
+	}
+}
+
+func TestNewMuxReadyz(t *testing.T) {
+	var logs bytes.Buffer
+	metrics := observability.NewMetrics()
+	mux := newMux(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}), failingReadinessService{}, slog.New(slog.NewJSONHandler(&logs, nil)), metrics)
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz status = %d, want %d", res.Code, http.StatusServiceUnavailable)
+	}
+
+	var report observability.ReadinessReport
+	if err := json.Unmarshal(res.Body.Bytes(), &report); err != nil {
+		t.Fatalf("unmarshal readyz response: %v\n%s", err, res.Body.String())
+	}
+	if report.Ready() {
+		t.Fatal("readyz report should not be ready")
+	}
+	if !strings.Contains(logs.String(), `"event":"dependency_unhealthy"`) {
+		t.Fatalf("expected dependency_unhealthy log, got %s", logs.String())
+	}
+
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRes := httptest.NewRecorder()
+	mux.ServeHTTP(metricsRes, metricsReq)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d, want %d", metricsRes.Code, http.StatusOK)
+	}
+	if !strings.Contains(metricsRes.Body.String(), `rag_mcp_readiness_dependency_up{dependency="ollama"} 0`) {
+		t.Fatalf("expected readiness metric, got %s", metricsRes.Body.String())
 	}
 }
 
@@ -203,4 +264,17 @@ func TestNewHTTPServerDefaults(t *testing.T) {
 	if srv.MaxHeaderBytes != defaultMaxHeaderBytes {
 		t.Fatalf("MaxHeaderBytes = %d, want %d", srv.MaxHeaderBytes, defaultMaxHeaderBytes)
 	}
+}
+
+func TestDependencyForToolError(t *testing.T) {
+	if got := dependencyForToolError("search", errors.New("embed request failed")); got != "ollama" {
+		t.Fatalf("dependency = %q, want ollama", got)
+	}
+	if got := dependencyForToolError("list_sources", errors.New("request failed")); got != "chroma" {
+		t.Fatalf("dependency = %q, want chroma", got)
+	}
+}
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

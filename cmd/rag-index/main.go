@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"io"
+	"log/slog"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/andrepester/rag-search-mcp/internal/config"
 	"github.com/andrepester/rag-search-mcp/internal/ingest"
+	"github.com/andrepester/rag-search-mcp/internal/observability"
 	"github.com/andrepester/rag-search-mcp/internal/ollama"
 	"github.com/andrepester/rag-search-mcp/internal/store"
 )
@@ -31,13 +35,17 @@ var (
 )
 
 func main() {
-	if err := run(context.Background(), log.Printf); err != nil {
-		log.Fatalf("reindex failed: %v", err)
+	logger := observability.NewFallbackLogger(os.Stdout, os.Getenv("RAG_LOG_LEVEL"), os.Getenv("RAG_LOG_FORMAT"))
+	if err := run(context.Background(), logger); err != nil {
+		logReindexError(context.Background(), componentLogger(logger, "rag-index"), err)
+		os.Exit(1)
 	}
 
 }
 
-func run(ctx context.Context, logf func(string, ...any)) error {
+func run(ctx context.Context, logger *slog.Logger) error {
+	logger = componentLogger(logger, "rag-index")
+
 	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
@@ -50,12 +58,30 @@ func run(ctx context.Context, logf func(string, ...any)) error {
 	retryCtx, cancel := context.WithTimeout(ctx, reindexInitTimeout)
 	defer cancel()
 
+	start := time.Now()
+	logger.InfoContext(ctx, "reindex started",
+		slog.String("event", "reindex_start"),
+		slog.String("trigger", "cli"),
+		slog.String("docs_dir", cfg.DocsDir),
+		slog.String("code_dir", cfg.CodeDir),
+		slog.Bool("code_ingest", cfg.EnableCodeIngest),
+		slog.String("collection", cfg.CollectionName),
+	)
+
 	stats, err := reindexWithRetry(retryCtx, ingestSvc)
 	if err != nil {
 		return err
 	}
 
-	logf("reindex complete: files=%d docs_files=%d code_files=%d chunks=%d", stats.Files, stats.DocsFiles, stats.CodeFiles, stats.Chunks)
+	logger.InfoContext(ctx, "reindex complete",
+		slog.String("event", "reindex_complete"),
+		slog.String("trigger", "cli"),
+		slog.Int("files", stats.Files),
+		slog.Int("docs_files", stats.DocsFiles),
+		slog.Int("code_files", stats.CodeFiles),
+		slog.Int("chunks", stats.Chunks),
+		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+	)
 	return nil
 }
 
@@ -84,4 +110,39 @@ func reindexWithRetry(ctx context.Context, idx indexer) (ingest.Stats, error) {
 			backoff = reindexInitMaxBackoff
 		}
 	}
+}
+
+func componentLogger(logger *slog.Logger, component string) *slog.Logger {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	return logger.With(slog.String("component", component))
+}
+
+func dependencyForReindexError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "ollama") || strings.Contains(msg, "embed") {
+		return "ollama"
+	}
+	if strings.Contains(msg, "chroma") || strings.Contains(msg, "collection") {
+		return "chroma"
+	}
+	return ""
+}
+
+func logReindexError(ctx context.Context, logger *slog.Logger, err error) {
+	attrs := []slog.Attr{
+		slog.String("event", "reindex_error"),
+		slog.String("error", err.Error()),
+	}
+	if dependency := dependencyForReindexError(err); dependency != "" {
+		attrs = append(attrs,
+			slog.String("dependency", dependency),
+			slog.String("hint", observability.DependencyHint(dependency)),
+		)
+	}
+	logger.LogAttrs(ctx, slog.LevelError, "reindex failed", attrs...)
 }

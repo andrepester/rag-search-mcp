@@ -33,6 +33,24 @@ func New(baseURL string) *Client {
 	}
 }
 
+func (c *Client) Check(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/tags", nil)
+	if err != nil {
+		return fmt.Errorf("create ollama health request: %w", err)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("ollama health request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("ollama health request failed with HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func (c *Client) Embed(ctx context.Context, model string, inputs []string) ([][]float64, error) {
 	if len(inputs) == 0 {
 		return nil, nil

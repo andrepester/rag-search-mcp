@@ -97,6 +97,8 @@ var defaults = map[string]string{
 	"RAG_CHUNK_SIZE":         "1200",
 	"RAG_CHUNK_OVERLAP":      "200",
 	"RAG_MAX_TOP_K":          "50",
+	"RAG_LOG_LEVEL":          "info",
+	"RAG_LOG_FORMAT":         "json",
 }
 
 var hostPathKeys = []string{
@@ -197,6 +199,8 @@ func (c *checker) checkRuntimeValues() {
 	c.checkHTTPHost()
 	c.checkBool("RAG_ENABLE_CODE_INGEST")
 	c.checkOneOf("RAG_SCOPE_DEFAULT", []string{"all", "docs", "code"})
+	c.checkOneOf("RAG_LOG_LEVEL", []string{"debug", "info", "warn", "error"})
+	c.checkOneOf("RAG_LOG_FORMAT", []string{"json", "text"})
 	c.checkNonEmpty("EMBED_MODEL")
 	c.checkNonEmpty("RAG_CHROMA_TENANT")
 	c.checkNonEmpty("RAG_CHROMA_DATABASE")

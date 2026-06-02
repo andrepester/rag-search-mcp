@@ -24,6 +24,8 @@ type Config struct {
 	DefaultScope     string
 	MaxTopK          int
 	EnableCodeIngest bool
+	LogLevel         string
+	LogFormat        string
 }
 
 func Load() (Config, error) {
@@ -71,6 +73,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("RAG_SCOPE_DEFAULT must be one of all, docs, code")
 	}
 
+	logLevel := strings.ToLower(strings.TrimSpace(env("RAG_LOG_LEVEL", "info")))
+	if logLevel != "debug" && logLevel != "info" && logLevel != "warn" && logLevel != "error" {
+		return Config{}, fmt.Errorf("RAG_LOG_LEVEL must be one of debug, info, warn, error")
+	}
+
+	logFormat := strings.ToLower(strings.TrimSpace(env("RAG_LOG_FORMAT", "json")))
+	if logFormat != "json" && logFormat != "text" {
+		return Config{}, fmt.Errorf("RAG_LOG_FORMAT must be one of json, text")
+	}
+
 	docsDir, err := filepath.Abs(env("RAG_DOCS_DIR", "./data/docs"))
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to resolve RAG_DOCS_DIR: %w", err)
@@ -96,6 +108,8 @@ func Load() (Config, error) {
 		DefaultScope:     defaultScope,
 		MaxTopK:          maxTopK,
 		EnableCodeIngest: enableCodeIngest,
+		LogLevel:         logLevel,
+		LogFormat:        logFormat,
 	}
 
 	return cfg, nil

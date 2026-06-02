@@ -4,7 +4,7 @@ This document captures the security implications of the ADR decision in `docs/ar
 
 ## Scope
 
-- Endpoints: `/mcp`, `/healthz`
+- Endpoints: `/mcp`, `/healthz`, `/readyz`, `/metrics`
 - Operating mode defined by the ADR: `localhost-only` (default), `LAN-only` (opt-in)
 
 ## Implementation Status
@@ -25,6 +25,9 @@ This document captures the security implications of the ADR decision in `docs/ar
 - Authentication: no token requirement for the current v1 LAN opt-in; operators deliberately accept the local LAN trust boundary.
 - CORS: no permissive default.
 - Discovery: no automatic service discovery in v1.
+- Readiness: `/readyz` exposes only dependency names, status, errors, and remediation hints; it must not expose queries, chunk text, embeddings, source snippets, or request bodies.
+- Runtime logs: CLI reindex logs may include configured docs/code source roots as operational context; logs must not expose queries, chunk text, embeddings, source snippets, or request bodies.
+- Metrics: `/metrics` exposes bounded operational counters and gauges only; metric labels must not include queries, paths, chunk text, source snippets, embeddings, or request bodies.
 
 ## Test / Compliance Checks
 

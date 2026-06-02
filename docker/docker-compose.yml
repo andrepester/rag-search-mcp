@@ -47,6 +47,8 @@ services:
       RAG_CHUNK_SIZE: ${RAG_CHUNK_SIZE:-1200}
       RAG_CHUNK_OVERLAP: ${RAG_CHUNK_OVERLAP:-200}
       RAG_MAX_TOP_K: ${RAG_MAX_TOP_K:-50}
+      RAG_LOG_LEVEL: ${RAG_LOG_LEVEL:-info}
+      RAG_LOG_FORMAT: ${RAG_LOG_FORMAT:-json}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
       EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
     volumes:

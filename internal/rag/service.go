@@ -10,6 +10,7 @@ import (
 
 	"github.com/andrepester/rag-search-mcp/internal/config"
 	"github.com/andrepester/rag-search-mcp/internal/ingest"
+	"github.com/andrepester/rag-search-mcp/internal/observability"
 	"github.com/andrepester/rag-search-mcp/internal/ollama"
 	"github.com/andrepester/rag-search-mcp/internal/store"
 )
@@ -236,6 +237,40 @@ func (s *Service) ListSources(ctx context.Context, scope string) (ListSourcesRes
 		return ListSourcesResponse{}, err
 	}
 	return ListSourcesResponse{ScopeUsed: scopeUsed, Sources: sources}, nil
+}
+
+func (s *Service) CheckReadiness(ctx context.Context) observability.ReadinessReport {
+	dependencies := []observability.DependencyStatus{
+		s.checkChroma(ctx),
+		s.checkOllama(ctx),
+	}
+	return observability.NewReadinessReport(dependencies)
+}
+
+func (s *Service) checkChroma(ctx context.Context) observability.DependencyStatus {
+	collectionID, err := s.Chroma.EnsureCollection(ctx, s.Config.CollectionName)
+	if err != nil {
+		return observability.DependencyStatus{
+			Name:   "chroma",
+			Status: observability.StatusError,
+			Error:  err.Error(),
+			Hint:   observability.DependencyHint("chroma"),
+		}
+	}
+	s.setCollectionID(collectionID)
+	return observability.DependencyStatus{Name: "chroma", Status: observability.StatusOK}
+}
+
+func (s *Service) checkOllama(ctx context.Context) observability.DependencyStatus {
+	if err := s.Ollama.Check(ctx); err != nil {
+		return observability.DependencyStatus{
+			Name:   "ollama",
+			Status: observability.StatusError,
+			Error:  err.Error(),
+			Hint:   observability.DependencyHint("ollama"),
+		}
+	}
+	return observability.DependencyStatus{Name: "ollama", Status: observability.StatusOK}
 }
 
 func normalizeScope(input, fallback string) string {
