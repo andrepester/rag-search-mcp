@@ -218,7 +218,7 @@ func (c *checker) checkHostPaths() {
 			c.add(SeverityError, key+"_EMPTY", fmt.Sprintf("%s resolves to an empty value.", key), fmt.Sprintf("Set %s to a repository-relative or absolute host directory.", key))
 			continue
 		}
-		resolved, err := resolvePath(c.repoRoot, raw)
+		resolved, err := c.resolveHostPath(raw)
 		if err != nil {
 			c.add(SeverityError, key+"_PATH", fmt.Sprintf("%s=%q cannot be resolved: %v.", key, raw, err), fmt.Sprintf("Set %s to a normal directory path, not %q.", key, raw))
 			continue
@@ -292,6 +292,10 @@ func (c *checker) checkPersistentPathSafety(key string, resolved string) {
 			return
 		}
 	}
+}
+
+func (c *checker) resolveHostPath(raw string) (string, error) {
+	return resolvePath(c.hostRepoRoot, raw)
 }
 
 func (c *checker) checkHostPathRelations(paths map[string]string) {

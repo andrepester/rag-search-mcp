@@ -189,6 +189,101 @@ func TestCheckReportsPersistenceSourceOverlap(t *testing.T) {
 	}
 }
 
+func TestCheckResolvesRelativeHostPathsAgainstHostRepoRoot(t *testing.T) {
+	parent := t.TempDir()
+	hostRepoRoot := filepath.Join(parent, "rag-search-mcp")
+	repoRoot := filepath.Join(parent, "container", "workspace")
+	for _, dir := range []string{
+		filepath.Join(parent, "docs"),
+		filepath.Join(parent, "code"),
+		filepath.Join(hostRepoRoot, "data", "index"),
+		filepath.Join(hostRepoRoot, "data", "models"),
+		filepath.Join(repoRoot, "docker"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	writeConfigDoctorRepoFiles(t, repoRoot, strings.Join([]string{
+		"RAG_HTTP_PORT=8765",
+		"HOST_DOCS_DIR=../docs",
+		"HOST_CODE_DIR=../code",
+		"HOST_INDEX_DIR=./data/index",
+		"HOST_MODELS_DIR=./data/models",
+		"OLLAMA_HOST=http://ollama:11434",
+		"EMBED_MODEL=nomic-embed-text",
+		"OLLAMA_PORT=11434",
+		"RAG_ENABLE_CODE_INGEST=true",
+		"RAG_CHROMA_TENANT=default_tenant",
+		"RAG_CHROMA_DATABASE=default_database",
+		"RAG_COLLECTION_NAME=rag",
+		"RAG_SCOPE_DEFAULT=all",
+		"RAG_CHUNK_SIZE=1200",
+		"RAG_CHUNK_OVERLAP=200",
+		"RAG_MAX_TOP_K=50",
+		"",
+	}, "\n"))
+
+	report, err := CheckWithOptions(Options{
+		RepoRoot:     repoRoot,
+		HostRepoRoot: hostRepoRoot,
+		Environ:      []string{},
+	})
+	if err != nil {
+		t.Fatalf("CheckWithOptions() failed: %v", err)
+	}
+	if len(report.Findings) != 0 {
+		t.Fatalf("expected no findings for sibling source dirs, got %#v", report.Findings)
+	}
+}
+
+func TestCheckKeepsHostPathSafetyWhenUsingHostRepoRoot(t *testing.T) {
+	parent := t.TempDir()
+	hostRepoRoot := filepath.Join(parent, "rag-search-mcp")
+	repoRoot := filepath.Join(parent, "container", "workspace")
+	for _, dir := range []string{
+		filepath.Join(parent, "docs", "index"),
+		filepath.Join(parent, "code"),
+		filepath.Join(hostRepoRoot, "data", "models"),
+		filepath.Join(repoRoot, "docker"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	writeConfigDoctorRepoFiles(t, repoRoot, strings.Join([]string{
+		"RAG_HTTP_PORT=8765",
+		"HOST_DOCS_DIR=../docs",
+		"HOST_CODE_DIR=../code",
+		"HOST_INDEX_DIR=../docs/index",
+		"HOST_MODELS_DIR=./data/models",
+		"OLLAMA_HOST=http://ollama:11434",
+		"EMBED_MODEL=nomic-embed-text",
+		"OLLAMA_PORT=11434",
+		"RAG_ENABLE_CODE_INGEST=true",
+		"RAG_CHROMA_TENANT=default_tenant",
+		"RAG_CHROMA_DATABASE=default_database",
+		"RAG_COLLECTION_NAME=rag",
+		"RAG_SCOPE_DEFAULT=all",
+		"RAG_CHUNK_SIZE=1200",
+		"RAG_CHUNK_OVERLAP=200",
+		"RAG_MAX_TOP_K=50",
+		"",
+	}, "\n"))
+
+	report, err := CheckWithOptions(Options{
+		RepoRoot:     repoRoot,
+		HostRepoRoot: hostRepoRoot,
+		Environ:      []string{},
+	})
+	if err != nil {
+		t.Fatalf("CheckWithOptions() failed: %v", err)
+	}
+	if !hasFinding(report, SeverityError, "HOST_INDEX_DIR_INSIDE_SOURCE") {
+		t.Fatalf("missing HOST_INDEX_DIR_INSIDE_SOURCE in %#v", report.Findings)
+	}
+}
+
 func TestCheckAllowsLANHTTPHostWithWarning(t *testing.T) {
 	repoRoot := newConfigDoctorRepo(t)
 
@@ -282,7 +377,7 @@ func newConfigDoctorRepo(t *testing.T) string {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
-	writeFile(t, filepath.Join(repoRoot, ".env"), 0o600, strings.Join([]string{
+	writeConfigDoctorRepoFiles(t, repoRoot, strings.Join([]string{
 		"RAG_HTTP_PORT=8765",
 		"HOST_DOCS_DIR=./data/docs",
 		"HOST_CODE_DIR=./data/code",
@@ -301,6 +396,12 @@ func newConfigDoctorRepo(t *testing.T) string {
 		"RAG_MAX_TOP_K=50",
 		"",
 	}, "\n"))
+	return repoRoot
+}
+
+func writeConfigDoctorRepoFiles(t *testing.T, repoRoot string, dotenv string) {
+	t.Helper()
+	writeFile(t, filepath.Join(repoRoot, ".env"), 0o600, dotenv)
 	writeFile(t, filepath.Join(repoRoot, "docker", "docker-compose.yml"), 0o644, `services:
   ollama:
     ports:
@@ -320,7 +421,6 @@ func newConfigDoctorRepo(t *testing.T) string {
     }
   }
 }`)
-	return repoRoot
 }
 
 func writeFile(t *testing.T, path string, mode os.FileMode, content string) {
