@@ -33,6 +33,43 @@ go_runner_gofmt_bin() {
 	printf '%s' 'gofmt'
 }
 
+go_runner_label_key() {
+	printf '%s' 'org.rag-search-mcp.go-runner-fingerprint'
+}
+
+go_runner_fingerprint() {
+	dockerfile_path=${DOCKERFILE_PATH:-docker/Dockerfile}
+	runner_target=${GO_RUNNER_TARGET:-go-runner}
+	tmp_file=$(mktemp "${TMPDIR:-/tmp}/go-runner-fingerprint.XXXXXX")
+	{
+		printf '%s\n' 'go-runner-fingerprint-v1'
+		printf 'target=%s\n' "$runner_target"
+		printf '%s\n' '[dockerfile]'
+		cat "$dockerfile_path"
+		printf '%s\n' '[go.mod]'
+		cat go.mod
+		printf '%s\n' '[go.sum]'
+		if [ -f go.sum ]; then
+			cat go.sum
+		fi
+	} > "$tmp_file"
+
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$tmp_file" | awk '{ print $1 }'
+	elif command -v shasum >/dev/null 2>&1; then
+		shasum -a 256 "$tmp_file" | awk '{ print $1 }'
+	else
+		cksum "$tmp_file" | awk '{ print $1 "-" $2 }'
+	fi
+	rm -f "$tmp_file"
+}
+
+go_runner_image_fingerprint() {
+	runner_image="$1"
+	label_key=$(go_runner_label_key)
+	docker image inspect --format "{{ index .Config.Labels \"$label_key\" }}" "$runner_image" 2>/dev/null || true
+}
+
 build_go_runner_image() {
 	if is_non_empty_non_ws "${GO_IMAGE-}"; then
 		return 0
@@ -40,7 +77,30 @@ build_go_runner_image() {
 	dockerfile_path=${DOCKERFILE_PATH:-docker/Dockerfile}
 	runner_target=${GO_RUNNER_TARGET:-go-runner}
 	runner_image=$(go_runner_image)
-	docker build -f "$dockerfile_path" --target "$runner_target" -t "$runner_image" .
+	label_key=$(go_runner_label_key)
+	fingerprint=$(go_runner_fingerprint)
+
+	if [ "${GO_RUNNER_FORCE_BUILD:-0}" != "1" ]; then
+		current_fingerprint=$(go_runner_image_fingerprint "$runner_image")
+		if [ "$current_fingerprint" = "$fingerprint" ]; then
+			return 0
+		fi
+	fi
+
+	printf '[go-runner] building %s\n' "$runner_image" >&2
+	if [ "${GO_RUNNER_BUILD_VERBOSE:-0}" = "1" ]; then
+		docker build -f "$dockerfile_path" --target "$runner_target" --label "$label_key=$fingerprint" -t "$runner_image" .
+		return 0
+	fi
+
+	build_log=$(mktemp "${TMPDIR:-/tmp}/go-runner-build.XXXXXX")
+	if docker build -f "$dockerfile_path" --target "$runner_target" --label "$label_key=$fingerprint" -t "$runner_image" . > "$build_log" 2>&1; then
+		rm -f "$build_log"
+		return 0
+	fi
+	cat "$build_log" >&2
+	rm -f "$build_log"
+	return 1
 }
 
 run_go_runner() {

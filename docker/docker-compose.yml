@@ -32,7 +32,7 @@ services:
       chroma:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${RAG_HTTP_PORT:-8765}:8765"
+      - "${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"
     environment:
       RAG_HTTP_HOST: 0.0.0.0
       RAG_HTTP_PORT: 8765
