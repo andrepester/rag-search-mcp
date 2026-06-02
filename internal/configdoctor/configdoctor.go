@@ -80,6 +80,7 @@ type valueSource struct {
 var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var defaults = map[string]string{
+	"RAG_HTTP_HOST":          "127.0.0.1",
 	"RAG_HTTP_PORT":          "8765",
 	"OLLAMA_PORT":            "11434",
 	"HOST_DOCS_DIR":          "./data/docs",
@@ -178,9 +179,6 @@ func (c *checker) checkDotEnv() {
 		c.report.Findings = append(c.report.Findings, finding)
 	}
 
-	if src := c.effective("RAG_HTTP_HOST"); src.value != "" && !isLoopbackHost(src.value) {
-		c.add(SeverityWarning, "RAG_HTTP_HOST_NON_LOOPBACK", fmt.Sprintf("RAG_HTTP_HOST is set to %q in %s.", src.value, src.source), "The Docker-first flow publishes ports through docker/docker-compose.yml. Non-loopback runtime binds require an explicit LAN-only operating decision.")
-	}
 }
 
 func (c *checker) checkRuntimeValues() {
@@ -196,6 +194,7 @@ func (c *checker) checkRuntimeValues() {
 		c.add(SeverityError, "CHUNK_OVERLAP_RANGE", fmt.Sprintf("RAG_CHUNK_OVERLAP resolves to %d, which is not smaller than RAG_CHUNK_SIZE %d.", chunkOverlap, chunkSize), "Set RAG_CHUNK_OVERLAP to a non-negative value smaller than RAG_CHUNK_SIZE.")
 	}
 	c.checkPositiveInt("RAG_MAX_TOP_K")
+	c.checkHTTPHost()
 	c.checkBool("RAG_ENABLE_CODE_INGEST")
 	c.checkOneOf("RAG_SCOPE_DEFAULT", []string{"all", "docs", "code"})
 	c.checkNonEmpty("EMBED_MODEL")
@@ -337,14 +336,26 @@ func (c *checker) checkComposeSecurity() {
 		return
 	}
 	content := string(raw)
+	if hasHostlessPortPublish(content, "RAG_HTTP_PORT", "8765") {
+		c.add(SeverityError, "COMPOSE_MCP_HOSTLESS_PUBLISH", "docker-compose.yml publishes rag-mcp without an explicit host bind.", "Use RAG_HTTP_HOST with a loopback default so LAN-only access remains an explicit opt-in.")
+	}
 	if regexp.MustCompile(`(?m)^\s*-\s*"?0\.0\.0\.0:\$\{RAG_HTTP_PORT`).MatchString(content) {
-		c.add(SeverityError, "COMPOSE_MCP_PUBLIC_BIND", "docker-compose.yml publishes rag-mcp on 0.0.0.0.", "Keep the default loopback publish binding, or document an explicit LAN-only opt-in before changing it.")
+		c.add(SeverityError, "COMPOSE_MCP_PUBLIC_BIND", "docker-compose.yml publishes rag-mcp on 0.0.0.0 without the LAN opt-in variable.", "Keep the Compose default loopback-only and use RAG_HTTP_HOST for explicit LAN-only operation.")
+	}
+	if strings.Contains(content, "${RAG_HTTP_HOST:-0.0.0.0}") || strings.Contains(content, "${RAG_HTTP_HOST:-[::]}") {
+		c.add(SeverityError, "COMPOSE_MCP_PUBLIC_DEFAULT", "docker-compose.yml defaults RAG_HTTP_HOST to all interfaces.", "Keep RAG_HTTP_HOST defaulted to 127.0.0.1 and opt into LAN-only operation through .env or the process environment.")
+	}
+	if regexp.MustCompile(`(?m)^\s*-\s*"?\[::\]:\$\{RAG_HTTP_PORT`).MatchString(content) {
+		c.add(SeverityError, "COMPOSE_MCP_PUBLIC_IPV6_BIND", "docker-compose.yml publishes rag-mcp on all IPv6 interfaces.", "Keep the Compose default loopback-only and use RAG_HTTP_HOST for explicit LAN-only operation.")
+	}
+	if hasHostlessPortPublish(content, "OLLAMA_PORT", "11434") {
+		c.add(SeverityError, "COMPOSE_OLLAMA_HOSTLESS_PUBLISH", "docker-compose.yml publishes Ollama without an explicit host bind.", "Keep Ollama bound to 127.0.0.1; LAN opt-in applies to rag-mcp, not the embedding backend.")
 	}
 	if regexp.MustCompile(`(?m)^\s*-\s*"?0\.0\.0\.0:\$\{OLLAMA_PORT`).MatchString(content) {
 		c.add(SeverityError, "COMPOSE_OLLAMA_PUBLIC_BIND", "docker-compose.yml publishes Ollama on 0.0.0.0.", "Keep Ollama bound to 127.0.0.1 unless a separate operating decision allows wider exposure.")
 	}
-	if !strings.Contains(content, `"127.0.0.1:${RAG_HTTP_PORT:-8765}:8765"`) {
-		c.add(SeverityWarning, "COMPOSE_MCP_LOOPBACK_DEFAULT", "docker-compose.yml no longer contains the expected loopback publish default for rag-mcp.", "Verify that /mcp is still localhost-only by default.")
+	if !strings.Contains(content, `"${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"`) {
+		c.add(SeverityWarning, "COMPOSE_MCP_LOOPBACK_DEFAULT", "docker-compose.yml no longer contains the expected loopback publish default for rag-mcp.", "Verify that /mcp is still localhost-only by default and LAN-only access requires RAG_HTTP_HOST opt-in.")
 	}
 	if !strings.Contains(content, `"127.0.0.1:${OLLAMA_PORT:-11434}:11434"`) {
 		c.add(SeverityWarning, "COMPOSE_OLLAMA_LOOPBACK_DEFAULT", "docker-compose.yml no longer contains the expected loopback publish default for Ollama.", "Verify that Ollama is still localhost-only by default.")
@@ -439,6 +450,33 @@ func (c *checker) checkPort(key string) int {
 		return 0
 	}
 	return port
+}
+
+func (c *checker) checkHTTPHost() {
+	src := c.effective("RAG_HTTP_HOST")
+	host := strings.TrimSpace(src.value)
+	if host == "" {
+		c.add(SeverityError, "RAG_HTTP_HOST_EMPTY", "RAG_HTTP_HOST resolves to an empty value.", "Set RAG_HTTP_HOST to 127.0.0.1 for the default localhost-only mode, or to an approved LAN bind address for explicit LAN-only operation.")
+		return
+	}
+	normalized := strings.ToLower(strings.Trim(host, "[] "))
+	if isLoopbackHost(normalized) {
+		return
+	}
+	ip := net.ParseIP(normalized)
+	if ip == nil {
+		c.add(SeverityWarning, "RAG_HTTP_HOST_NAME", fmt.Sprintf("RAG_HTTP_HOST resolves to non-loopback hostname %q in %s.", host, src.source), "Ensure this hostname is constrained to the approved LAN-only network boundary; default installs should use 127.0.0.1.")
+		return
+	}
+	if ip.IsUnspecified() {
+		c.add(SeverityWarning, "RAG_HTTP_HOST_ALL_INTERFACES", fmt.Sprintf("RAG_HTTP_HOST resolves to all interfaces (%s) in %s.", host, src.source), "Prefer a specific approved LAN interface IP when possible, and ensure host firewall rules exclude WAN/public reachability.")
+		return
+	}
+	if ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		c.add(SeverityWarning, "RAG_HTTP_HOST_LAN_OPT_IN", fmt.Sprintf("RAG_HTTP_HOST resolves to LAN address %s in %s.", host, src.source), "LAN-only operation is active; ensure only approved source networks can reach /mcp and WAN/VPN exposure remains out of scope.")
+		return
+	}
+	c.add(SeverityError, "RAG_HTTP_HOST_PUBLIC", fmt.Sprintf("RAG_HTTP_HOST resolves to non-private address %s in %s.", host, src.source), "Use 127.0.0.1 for default operation or an approved private LAN address for LAN-only opt-in; WAN/public exposure is out of scope for v1.")
 }
 
 func (c *checker) checkPositiveInt(key string) int {
@@ -598,6 +636,24 @@ func trimEnvValue(raw string) string {
 	value := strings.TrimSpace(raw)
 	value = strings.Trim(value, `"'`)
 	return value
+}
+
+func hasHostlessPortPublish(content string, hostPortKey string, targetPort string) bool {
+	for _, rawLine := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if !strings.HasPrefix(line, "-") {
+			continue
+		}
+		spec := strings.TrimSpace(strings.TrimPrefix(line, "-"))
+		spec = strings.Trim(spec, `"'`)
+		if spec == targetPort || spec == targetPort+"/tcp" || strings.HasPrefix(spec, targetPort+":") {
+			return true
+		}
+		if strings.HasPrefix(spec, "${"+hostPortKey) {
+			return true
+		}
+	}
+	return false
 }
 
 func environMap(environ []string) map[string]string {

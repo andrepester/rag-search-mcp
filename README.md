@@ -173,12 +173,16 @@ make clean-install FULL_RESET=1
 - VPN/overlay access is out of scope in v1
 
 Non-loopback access requires additional controls as defined in the ADR and threat model.
+To opt into LAN-only operation, set `RAG_HTTP_HOST` to an approved LAN interface
+address and constrain access with the host firewall or local network controls. Avoid
+using `0.0.0.0` unless all host interfaces are intentionally inside the approved LAN
+boundary.
 
 ### Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `RAG_HTTP_HOST` | `127.0.0.1` | MCP HTTP bind host inside the container |
+| `RAG_HTTP_HOST` | `127.0.0.1` | Host interface used by Docker to publish the MCP HTTP port; set to an approved LAN address for explicit LAN-only opt-in |
 | `RAG_HTTP_PORT` | `8765` | MCP HTTP port published on the host |
 | `HOST_DOCS_DIR` | `./data/docs` | Host path mounted as docs source |
 | `HOST_CODE_DIR` | `./data/code` | Host path mounted as code source |
@@ -368,4 +372,7 @@ Unsafe broad paths such as `/`, the repository root or parent, and `HOME` are re
 
 ### Can I expose the service beyond localhost?
 
-Not by default. v1 is localhost-first. Non-loopback access is an explicit opt-in topic with additional controls and documented constraints in the ADR and threat model.
+Not by default. v1 is localhost-first. For explicit LAN-only opt-in, set
+`RAG_HTTP_HOST` to an approved LAN interface address, review firewall or local
+network controls, and keep WAN/VPN/public exposure out of scope unless a new ADR and
+threat model cover that operating mode.

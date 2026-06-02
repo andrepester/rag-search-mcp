@@ -189,6 +189,85 @@ func TestCheckReportsPersistenceSourceOverlap(t *testing.T) {
 	}
 }
 
+func TestCheckAllowsLANHTTPHostWithWarning(t *testing.T) {
+	repoRoot := newConfigDoctorRepo(t)
+
+	report, err := CheckWithOptions(Options{
+		RepoRoot: repoRoot,
+		Environ:  []string{"RAG_HTTP_HOST=192.168.178.27"},
+	})
+	if err != nil {
+		t.Fatalf("CheckWithOptions() failed: %v", err)
+	}
+	if report.HasErrors() {
+		t.Fatalf("expected warning-only report, got %#v", report.Findings)
+	}
+	if !hasFinding(report, SeverityWarning, "RAG_HTTP_HOST_LAN_OPT_IN") {
+		t.Fatalf("missing RAG_HTTP_HOST_LAN_OPT_IN in %#v", report.Findings)
+	}
+}
+
+func TestCheckRejectsPublicHTTPHost(t *testing.T) {
+	repoRoot := newConfigDoctorRepo(t)
+
+	report, err := CheckWithOptions(Options{
+		RepoRoot: repoRoot,
+		Environ:  []string{"RAG_HTTP_HOST=8.8.8.8"},
+	})
+	if err != nil {
+		t.Fatalf("CheckWithOptions() failed: %v", err)
+	}
+	if !hasFinding(report, SeverityError, "RAG_HTTP_HOST_PUBLIC") {
+		t.Fatalf("missing RAG_HTTP_HOST_PUBLIC in %#v", report.Findings)
+	}
+}
+
+func TestCheckReportsHostlessMCPComposePublish(t *testing.T) {
+	repoRoot := newConfigDoctorRepo(t)
+	writeFile(t, filepath.Join(repoRoot, "docker", "docker-compose.yml"), 0o644, `services:
+  ollama:
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+  rag-mcp:
+    ports:
+      - "${RAG_HTTP_PORT:-8765}:8765"
+`)
+
+	report, err := CheckWithOptions(Options{
+		RepoRoot: repoRoot,
+		Environ:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("CheckWithOptions() failed: %v", err)
+	}
+	if !hasFinding(report, SeverityError, "COMPOSE_MCP_HOSTLESS_PUBLISH") {
+		t.Fatalf("missing COMPOSE_MCP_HOSTLESS_PUBLISH in %#v", report.Findings)
+	}
+}
+
+func TestCheckReportsHostlessOllamaComposePublish(t *testing.T) {
+	repoRoot := newConfigDoctorRepo(t)
+	writeFile(t, filepath.Join(repoRoot, "docker", "docker-compose.yml"), 0o644, `services:
+  ollama:
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+  rag-mcp:
+    ports:
+      - "${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"
+`)
+
+	report, err := CheckWithOptions(Options{
+		RepoRoot: repoRoot,
+		Environ:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("CheckWithOptions() failed: %v", err)
+	}
+	if !hasFinding(report, SeverityError, "COMPOSE_OLLAMA_HOSTLESS_PUBLISH") {
+		t.Fatalf("missing COMPOSE_OLLAMA_HOSTLESS_PUBLISH in %#v", report.Findings)
+	}
+}
+
 func newConfigDoctorRepo(t *testing.T) string {
 	t.Helper()
 	repoRoot := t.TempDir()
@@ -228,7 +307,7 @@ func newConfigDoctorRepo(t *testing.T) string {
       - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
   rag-mcp:
     ports:
-      - "127.0.0.1:${RAG_HTTP_PORT:-8765}:8765"
+      - "${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"
 `)
 	writeFile(t, filepath.Join(repoRoot, "opencode.json"), 0o600, `{
   "$schema": "https://opencode.ai/config.json",

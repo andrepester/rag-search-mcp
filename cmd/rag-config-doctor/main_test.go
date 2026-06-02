@@ -69,6 +69,27 @@ func TestRunJSONSuccess(t *testing.T) {
 	}
 }
 
+func TestRunLANHTTPHostWarningExitSuccess(t *testing.T) {
+	repoRoot := newConfigDoctorCLIRepo(t)
+	t.Setenv("RAG_HTTP_HOST", "192.168.178.27")
+	var stdout bytes.Buffer
+
+	code, err := run([]string{"--repo-root", repoRoot}, &stdout)
+	if err != nil {
+		t.Fatalf("run() failed: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; output: %s", code, stdout.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "config-doctor: warning [RAG_HTTP_HOST_LAN_OPT_IN]") {
+		t.Fatalf("missing LAN opt-in warning in output: %s", output)
+	}
+	if !strings.Contains(output, "config-doctor: passed") {
+		t.Fatalf("missing passed summary in output: %s", output)
+	}
+}
+
 func TestRunRejectsUnsupportedFormat(t *testing.T) {
 	repoRoot := newConfigDoctorCLIRepo(t)
 	var stdout bytes.Buffer
@@ -125,7 +146,7 @@ func newConfigDoctorCLIRepo(t *testing.T) string {
       - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
   rag-mcp:
     ports:
-      - "127.0.0.1:${RAG_HTTP_PORT:-8765}:8765"
+      - "${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"
 `)
 	writeCLIFile(t, filepath.Join(repoRoot, "opencode.json"), 0o600, `{
   "$schema": "https://opencode.ai/config.json",
