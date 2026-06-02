@@ -5,6 +5,7 @@
 FULL_RESET ?= 0
 COMPOSE_PROJECT_DIR ?= .
 COMPOSE_FILE ?= docker/docker-compose.yml
+COMPOSE_UP_FLAGS ?= auto
 COMPOSE = docker compose --project-directory $(COMPOSE_PROJECT_DIR) -f $(COMPOSE_FILE)
 
 help:
@@ -16,16 +17,16 @@ help:
 	@printf '  %-25s %s\n' 'make test' 'Run Go tests via Dockerfile go-runner stage'
 	@printf '  %-25s %s\n' 'make reindex' 'Rebuild index in the running rag-mcp container'
 	@printf '  %-25s %s\n' 'make logs' 'Tail runtime stack logs'
-	@printf '  %-25s %s\n' 'make doctor' 'Run runtime diagnostics on the running stack'
+	@printf '  %-25s %s\n' 'make doctor' 'Validate config and run runtime diagnostics'
 
 install:
-	@COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' sh ./shell/install.sh
+	@COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' COMPOSE_UP_FLAGS='$(COMPOSE_UP_FLAGS)' sh ./shell/install.sh
 
 test:
 	@sh ./shell/go-runner.sh test -count=1 ./...
 
 up:
-	$(COMPOSE) up -d --build
+	@COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' COMPOSE_UP_FLAGS='$(COMPOSE_UP_FLAGS)' sh ./shell/up.sh
 
 down:
 	$(COMPOSE) stop

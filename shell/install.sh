@@ -5,8 +5,9 @@ compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
 compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
 
 sh ./shell/install-bootstrap.sh
+sh ./shell/config-doctor.sh
 
-docker compose --project-directory "$compose_project_dir" -f "$compose_file" up -d --build
+COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/up.sh
 
 i=1
 while [ "$i" -le 60 ]; do

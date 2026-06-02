@@ -144,7 +144,14 @@ Scope behavior:
 | `make test` | Run Go tests through the Dockerfile `go-runner` stage |
 | `make reindex` | Rebuild the semantic index in the running `rag-mcp` container |
 | `make logs` | Stream runtime logs |
-| `make doctor` | Run runtime diagnostics, reindex, verify index data, and check health |
+| `make doctor` | Validate configuration, run runtime diagnostics, reindex, verify index data, and check health |
+
+`make doctor` runs configuration validation first. Configuration `error` findings stop the
+doctor run before runtime checks; `warning` findings are printed and runtime checks continue.
+
+`make up` and `make install` use `COMPOSE_UP_FLAGS=auto` by default, which enables
+quiet Compose build/pull output when the local Compose version supports it. Set
+`COMPOSE_UP_FLAGS=` to see full Compose build output while debugging.
 
 Lifecycle examples:
 
@@ -210,6 +217,23 @@ Non-loopback access requires additional controls as defined in the ADR and threa
 The project is intended to be operated through the provided Docker stack and `make` targets.
 
 Local `opencode.json` variants are ignored by Git.
+
+### Configuration diagnostics
+
+The internal config doctor validates `.env`, `opencode.json`, host mount paths, ports,
+runtime tuning values, and localhost-first security defaults. It is exposed through
+`make doctor` and `make install`, not as a separate public Make target.
+
+Finding severity:
+
+- `error`: invalid or unsafe configuration that stops the current workflow
+- `warning`: configuration drift or missing setup that should be reviewed, while the workflow may continue
+
+The internal shell entry point is available for maintainer automation:
+
+```bash
+sh ./shell/config-doctor.sh
+```
 
 ## Development
 
@@ -323,6 +347,12 @@ For a full bootstrap, use:
 ```bash
 make install
 ```
+
+### `make doctor` reports configuration findings
+
+Fix `error` findings first; they stop the doctor run before runtime checks. Review
+`warning` findings such as stale `opencode.json` ports or missing optional paths, then
+rerun `make doctor`.
 
 ### I need to reset persisted runtime data
 

@@ -1,0 +1,695 @@
+package configdoctor
+
+import (
+	"bufio"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+type Severity string
+
+const (
+	SeverityError   Severity = "error"
+	SeverityWarning Severity = "warning"
+)
+
+type Finding struct {
+	Severity    Severity `json:"severity"`
+	Code        string   `json:"code"`
+	Message     string   `json:"message"`
+	Remediation string   `json:"remediation"`
+}
+
+type Report struct {
+	Findings []Finding `json:"findings"`
+}
+
+func (r Report) ErrorCount() int {
+	count := 0
+	for _, finding := range r.Findings {
+		if finding.Severity == SeverityError {
+			count++
+		}
+	}
+	return count
+}
+
+func (r Report) WarningCount() int {
+	count := 0
+	for _, finding := range r.Findings {
+		if finding.Severity == SeverityWarning {
+			count++
+		}
+	}
+	return count
+}
+
+func (r Report) HasErrors() bool {
+	return r.ErrorCount() > 0
+}
+
+type Options struct {
+	RepoRoot     string
+	HostRepoRoot string
+	HostHome     string
+	Environ      []string
+}
+
+type checker struct {
+	repoRoot     string
+	hostRepoRoot string
+	hostHome     string
+	environ      map[string]string
+	dotenv       map[string]string
+	report       Report
+}
+
+type valueSource struct {
+	value  string
+	source string
+}
+
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+var defaults = map[string]string{
+	"RAG_HTTP_PORT":          "8765",
+	"OLLAMA_PORT":            "11434",
+	"HOST_DOCS_DIR":          "./data/docs",
+	"HOST_CODE_DIR":          "./data/code",
+	"HOST_INDEX_DIR":         "./data/index",
+	"HOST_MODELS_DIR":        "./data/models",
+	"OLLAMA_HOST":            "http://ollama:11434",
+	"EMBED_MODEL":            "nomic-embed-text",
+	"RAG_ENABLE_CODE_INGEST": "true",
+	"RAG_CHROMA_TENANT":      "default_tenant",
+	"RAG_CHROMA_DATABASE":    "default_database",
+	"RAG_COLLECTION_NAME":    "rag",
+	"RAG_SCOPE_DEFAULT":      "all",
+	"RAG_CHUNK_SIZE":         "1200",
+	"RAG_CHUNK_OVERLAP":      "200",
+	"RAG_MAX_TOP_K":          "50",
+}
+
+var hostPathKeys = []string{
+	"HOST_DOCS_DIR",
+	"HOST_CODE_DIR",
+	"HOST_INDEX_DIR",
+	"HOST_MODELS_DIR",
+}
+
+func Check(repoRoot string, environ []string) (Report, error) {
+	return CheckWithOptions(Options{RepoRoot: repoRoot, Environ: environ})
+}
+
+func CheckWithOptions(opts Options) (Report, error) {
+	repoRoot := strings.TrimSpace(opts.RepoRoot)
+	if repoRoot == "" {
+		repoRoot = "."
+	}
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return Report{}, fmt.Errorf("resolve repo root: %w", err)
+	}
+
+	hostRepoRoot := strings.TrimSpace(opts.HostRepoRoot)
+	if hostRepoRoot == "" {
+		hostRepoRoot = absRoot
+	}
+	if absHostRoot, err := filepath.Abs(hostRepoRoot); err == nil {
+		hostRepoRoot = absHostRoot
+	}
+
+	env := opts.Environ
+	if env == nil {
+		env = os.Environ()
+	}
+
+	c := &checker{
+		repoRoot:     filepath.Clean(absRoot),
+		hostRepoRoot: filepath.Clean(hostRepoRoot),
+		hostHome:     filepath.Clean(strings.TrimSpace(opts.HostHome)),
+		environ:      environMap(env),
+		dotenv:       map[string]string{},
+	}
+
+	c.checkDotEnv()
+	c.checkRuntimeValues()
+	c.checkHostPaths()
+	c.checkComposeSecurity()
+	c.checkOpenCode()
+
+	return c.report, nil
+}
+
+func (c *checker) checkDotEnv() {
+	path := filepath.Join(c.repoRoot, ".env")
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.add(SeverityWarning, "DOTENV_MISSING", ".env is missing; Compose will use defaults only.", "Run make install to bootstrap .env from .env.example, or create .env with the documented values.")
+			return
+		}
+		c.add(SeverityError, "DOTENV_STAT", fmt.Sprintf("cannot stat .env: %v", err), "Fix file permissions or recreate .env with make install.")
+		return
+	}
+	if info.IsDir() {
+		c.add(SeverityError, "DOTENV_IS_DIRECTORY", ".env is a directory.", "Replace .env with a regular environment file.")
+		return
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		c.add(SeverityWarning, "DOTENV_PERMISSIONS", ".env is readable by group or others.", "Run chmod 600 .env to keep local configuration private.")
+	}
+
+	values, findings, err := parseDotEnv(path)
+	if err != nil {
+		c.add(SeverityError, "DOTENV_READ", fmt.Sprintf("cannot read .env: %v", err), "Fix file permissions or recreate .env with make install.")
+		return
+	}
+	c.dotenv = values
+	for _, finding := range findings {
+		c.report.Findings = append(c.report.Findings, finding)
+	}
+
+	if src := c.effective("RAG_HTTP_HOST"); src.value != "" && !isLoopbackHost(src.value) {
+		c.add(SeverityWarning, "RAG_HTTP_HOST_NON_LOOPBACK", fmt.Sprintf("RAG_HTTP_HOST is set to %q in %s.", src.value, src.source), "The Docker-first flow publishes ports through docker/docker-compose.yml. Non-loopback runtime binds require an explicit LAN-only operating decision.")
+	}
+}
+
+func (c *checker) checkRuntimeValues() {
+	ragPort := c.checkPort("RAG_HTTP_PORT")
+	ollamaPort := c.checkPort("OLLAMA_PORT")
+	if ragPort > 0 && ollamaPort > 0 && ragPort == ollamaPort {
+		c.add(SeverityError, "PORT_CONFLICT", fmt.Sprintf("RAG_HTTP_PORT and OLLAMA_PORT both resolve to %d.", ragPort), "Use distinct host ports for rag-mcp and Ollama.")
+	}
+
+	chunkSize := c.checkPositiveInt("RAG_CHUNK_SIZE")
+	chunkOverlap := c.checkNonNegativeInt("RAG_CHUNK_OVERLAP")
+	if chunkSize > 0 && chunkOverlap >= chunkSize {
+		c.add(SeverityError, "CHUNK_OVERLAP_RANGE", fmt.Sprintf("RAG_CHUNK_OVERLAP resolves to %d, which is not smaller than RAG_CHUNK_SIZE %d.", chunkOverlap, chunkSize), "Set RAG_CHUNK_OVERLAP to a non-negative value smaller than RAG_CHUNK_SIZE.")
+	}
+	c.checkPositiveInt("RAG_MAX_TOP_K")
+	c.checkBool("RAG_ENABLE_CODE_INGEST")
+	c.checkOneOf("RAG_SCOPE_DEFAULT", []string{"all", "docs", "code"})
+	c.checkNonEmpty("EMBED_MODEL")
+	c.checkNonEmpty("RAG_CHROMA_TENANT")
+	c.checkNonEmpty("RAG_CHROMA_DATABASE")
+	c.checkNonEmpty("RAG_COLLECTION_NAME")
+	c.checkURL("OLLAMA_HOST")
+}
+
+func (c *checker) checkHostPaths() {
+	codeIngestEnabled := true
+	if parsed, ok := parseBool(c.effective("RAG_ENABLE_CODE_INGEST").value); ok {
+		codeIngestEnabled = parsed
+	}
+
+	resolvedPaths := map[string]string{}
+	for _, key := range hostPathKeys {
+		src := c.effective(key)
+		raw := strings.TrimSpace(src.value)
+		if raw == "" {
+			c.add(SeverityError, key+"_EMPTY", fmt.Sprintf("%s resolves to an empty value.", key), fmt.Sprintf("Set %s to a repository-relative or absolute host directory.", key))
+			continue
+		}
+		resolved, err := resolvePath(c.repoRoot, raw)
+		if err != nil {
+			c.add(SeverityError, key+"_PATH", fmt.Sprintf("%s=%q cannot be resolved: %v.", key, raw, err), fmt.Sprintf("Set %s to a normal directory path, not %q.", key, raw))
+			continue
+		}
+		resolvedPaths[key] = resolved
+
+		displayPath := c.displayPath(resolved)
+		info, err := os.Stat(resolved)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				if key == "HOST_CODE_DIR" && !codeIngestEnabled {
+					c.add(SeverityWarning, key+"_MISSING", fmt.Sprintf("%s points to %s, which does not exist; code ingest is disabled.", key, displayPath), fmt.Sprintf("Create %s if you plan to enable RAG_ENABLE_CODE_INGEST.", displayPath))
+				} else {
+					c.add(SeverityWarning, key+"_MISSING", fmt.Sprintf("%s points to %s, which does not exist.", key, displayPath), "Run make install to create default host directories, or update .env to an existing source/persistence path.")
+				}
+			} else {
+				c.add(SeverityError, key+"_STAT", fmt.Sprintf("cannot stat %s at %s: %v.", key, displayPath, err), "Fix path permissions or choose a readable host directory.")
+			}
+		} else if !info.IsDir() {
+			c.add(SeverityError, key+"_NOT_DIRECTORY", fmt.Sprintf("%s points to %s, which is not a directory.", key, displayPath), fmt.Sprintf("Set %s to a directory path.", key))
+		}
+
+		if key == "HOST_INDEX_DIR" || key == "HOST_MODELS_DIR" {
+			c.checkPersistentPathSafety(key, resolved)
+		}
+	}
+	c.checkHostPathRelations(resolvedPaths)
+}
+
+func (c *checker) checkPersistentPathSafety(key string, resolved string) {
+	displayPath := c.displayPath(resolved)
+	candidates := uniqueNonEmpty([]string{
+		filepath.Clean(resolved),
+		filepath.Clean(displayPath),
+	})
+	repoCandidates := uniqueNonEmpty([]string{
+		c.repoRoot,
+		c.hostRepoRoot,
+	})
+	homeCandidates := uniqueNonEmpty([]string{
+		c.hostHome,
+	})
+
+	for _, candidate := range candidates {
+		if candidate == string(filepath.Separator) || candidate == "." {
+			c.add(SeverityError, key+"_UNSAFE_ROOT", fmt.Sprintf("%s resolves to unsafe path %s.", key, displayPath), fmt.Sprintf("Set %s to a dedicated persistence directory such as ./data/index or ./data/models.", key))
+			return
+		}
+		for _, repo := range repoCandidates {
+			if candidate == repo {
+				c.add(SeverityError, key+"_UNSAFE_REPO", fmt.Sprintf("%s points at the repository root %s.", key, displayPath), fmt.Sprintf("Set %s to a dedicated child directory such as ./data/index or ./data/models.", key))
+				return
+			}
+			if candidate == filepath.Dir(repo) {
+				c.add(SeverityError, key+"_UNSAFE_REPO_PARENT", fmt.Sprintf("%s points at the repository parent %s.", key, displayPath), fmt.Sprintf("Set %s to a dedicated persistence directory.", key))
+				return
+			}
+			if isAncestor(candidate, repo) {
+				c.add(SeverityError, key+"_UNSAFE_REPO_ANCESTOR", fmt.Sprintf("%s=%s is an ancestor of the repository.", key, displayPath), fmt.Sprintf("Set %s to a dedicated persistence directory, not a broad parent path.", key))
+				return
+			}
+		}
+		for _, home := range homeCandidates {
+			if candidate == home {
+				c.add(SeverityError, key+"_UNSAFE_HOME", fmt.Sprintf("%s points at HOME (%s).", key, displayPath), fmt.Sprintf("Set %s to a dedicated persistence directory.", key))
+				return
+			}
+		}
+		if isBroadPath(candidate) {
+			c.add(SeverityError, key+"_UNSAFE_BROAD_PATH", fmt.Sprintf("%s resolves to broad path %s.", key, displayPath), fmt.Sprintf("Set %s to a narrower dedicated persistence directory.", key))
+			return
+		}
+	}
+}
+
+func (c *checker) checkHostPathRelations(paths map[string]string) {
+	indexPath, hasIndex := paths["HOST_INDEX_DIR"]
+	modelsPath, hasModels := paths["HOST_MODELS_DIR"]
+	if hasIndex && hasModels && filepath.Clean(indexPath) == filepath.Clean(modelsPath) {
+		c.add(SeverityError, "HOST_PERSISTENCE_PATH_CONFLICT", fmt.Sprintf("HOST_INDEX_DIR and HOST_MODELS_DIR both resolve to %s.", c.displayPath(indexPath)), "Use separate persistence directories for Chroma index data and Ollama models.")
+	}
+
+	for _, persistenceKey := range []string{"HOST_INDEX_DIR", "HOST_MODELS_DIR"} {
+		persistencePath, ok := paths[persistenceKey]
+		if !ok {
+			continue
+		}
+		for _, sourceKey := range []string{"HOST_DOCS_DIR", "HOST_CODE_DIR"} {
+			sourcePath, ok := paths[sourceKey]
+			if !ok {
+				continue
+			}
+			if filepath.Clean(persistencePath) == filepath.Clean(sourcePath) || isAncestor(sourcePath, persistencePath) {
+				c.add(SeverityError, persistenceKey+"_INSIDE_SOURCE", fmt.Sprintf("%s resolves inside %s at %s.", persistenceKey, sourceKey, c.displayPath(persistencePath)), "Keep source mounts and persistence directories separate so generated runtime data is not ingested as source content.")
+				continue
+			}
+			if isAncestor(persistencePath, sourcePath) {
+				c.add(SeverityError, sourceKey+"_INSIDE_PERSISTENCE", fmt.Sprintf("%s resolves inside %s at %s.", sourceKey, persistenceKey, c.displayPath(sourcePath)), "Keep source mounts and persistence directories separate so generated runtime data is not ingested as source content.")
+			}
+		}
+	}
+
+	docsPath, hasDocs := paths["HOST_DOCS_DIR"]
+	codePath, hasCode := paths["HOST_CODE_DIR"]
+	if hasDocs && hasCode && filepath.Clean(docsPath) == filepath.Clean(codePath) {
+		c.add(SeverityWarning, "HOST_SOURCE_PATH_OVERLAP", fmt.Sprintf("HOST_DOCS_DIR and HOST_CODE_DIR both resolve to %s.", c.displayPath(docsPath)), "Use separate docs and code source directories unless this overlap is intentional.")
+	}
+}
+
+func (c *checker) checkComposeSecurity() {
+	path := filepath.Join(c.repoRoot, "docker", "docker-compose.yml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		c.add(SeverityError, "COMPOSE_READ", fmt.Sprintf("cannot read docker/docker-compose.yml: %v.", err), "Restore docker/docker-compose.yml or fix file permissions.")
+		return
+	}
+	content := string(raw)
+	if regexp.MustCompile(`(?m)^\s*-\s*"?0\.0\.0\.0:\$\{RAG_HTTP_PORT`).MatchString(content) {
+		c.add(SeverityError, "COMPOSE_MCP_PUBLIC_BIND", "docker-compose.yml publishes rag-mcp on 0.0.0.0.", "Keep the default loopback publish binding, or document an explicit LAN-only opt-in before changing it.")
+	}
+	if regexp.MustCompile(`(?m)^\s*-\s*"?0\.0\.0\.0:\$\{OLLAMA_PORT`).MatchString(content) {
+		c.add(SeverityError, "COMPOSE_OLLAMA_PUBLIC_BIND", "docker-compose.yml publishes Ollama on 0.0.0.0.", "Keep Ollama bound to 127.0.0.1 unless a separate operating decision allows wider exposure.")
+	}
+	if !strings.Contains(content, `"127.0.0.1:${RAG_HTTP_PORT:-8765}:8765"`) {
+		c.add(SeverityWarning, "COMPOSE_MCP_LOOPBACK_DEFAULT", "docker-compose.yml no longer contains the expected loopback publish default for rag-mcp.", "Verify that /mcp is still localhost-only by default.")
+	}
+	if !strings.Contains(content, `"127.0.0.1:${OLLAMA_PORT:-11434}:11434"`) {
+		c.add(SeverityWarning, "COMPOSE_OLLAMA_LOOPBACK_DEFAULT", "docker-compose.yml no longer contains the expected loopback publish default for Ollama.", "Verify that Ollama is still localhost-only by default.")
+	}
+}
+
+func (c *checker) checkOpenCode() {
+	path := filepath.Join(c.repoRoot, "opencode.json")
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.add(SeverityWarning, "OPENCODE_MISSING", "opencode.json is missing.", "Run make install to generate the default remote MCP client configuration.")
+			return
+		}
+		c.add(SeverityError, "OPENCODE_STAT", fmt.Sprintf("cannot stat opencode.json: %v.", err), "Fix file permissions or regenerate opencode.json with make install.")
+		return
+	}
+	if info.IsDir() {
+		c.add(SeverityError, "OPENCODE_IS_DIRECTORY", "opencode.json is a directory.", "Replace opencode.json with a JSON configuration file.")
+		return
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		c.add(SeverityWarning, "OPENCODE_PERMISSIONS", "opencode.json is readable by group or others.", "Run chmod 600 opencode.json to keep local client configuration private.")
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		c.add(SeverityError, "OPENCODE_READ", fmt.Sprintf("cannot read opencode.json: %v.", err), "Fix file permissions or regenerate opencode.json with make install.")
+		return
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		c.add(SeverityError, "OPENCODE_JSON", fmt.Sprintf("opencode.json is not valid JSON: %v.", err), "Fix the JSON syntax or run make install to back up and regenerate the file.")
+		return
+	}
+	mcp, ok := cfg["mcp"].(map[string]any)
+	if !ok {
+		c.add(SeverityWarning, "OPENCODE_MCP_MISSING", "opencode.json has no mcp object.", "Run make install to add the rag-search-mcp remote MCP alias.")
+		return
+	}
+	service, ok := mcp["rag-search-mcp"].(map[string]any)
+	if !ok {
+		c.add(SeverityWarning, "OPENCODE_ALIAS_MISSING", "opencode.json has no mcp.rag-search-mcp alias.", "Run make install to add the rag-search-mcp remote MCP alias.")
+		return
+	}
+
+	if typ, ok := service["type"].(string); !ok || typ != "remote" {
+		c.add(SeverityWarning, "OPENCODE_ALIAS_TYPE", "mcp.rag-search-mcp is not configured as a remote MCP server.", "Set mcp.rag-search-mcp.type to remote or run make install.")
+	}
+	if enabled, ok := service["enabled"].(bool); ok && !enabled {
+		c.add(SeverityWarning, "OPENCODE_ALIAS_DISABLED", "mcp.rag-search-mcp is disabled.", "Set mcp.rag-search-mcp.enabled to true or run make install.")
+	}
+	rawURL, ok := service["url"].(string)
+	if !ok || strings.TrimSpace(rawURL) == "" {
+		c.add(SeverityWarning, "OPENCODE_ALIAS_URL_MISSING", "mcp.rag-search-mcp.url is missing.", "Set the URL to http://127.0.0.1:${RAG_HTTP_PORT}/mcp or run make install.")
+		return
+	}
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		c.add(SeverityWarning, "OPENCODE_ALIAS_URL_INVALID", fmt.Sprintf("mcp.rag-search-mcp.url is invalid: %q.", rawURL), "Set the URL to http://127.0.0.1:${RAG_HTTP_PORT}/mcp or run make install.")
+		return
+	}
+	if parsed.Scheme != "http" {
+		c.add(SeverityWarning, "OPENCODE_ALIAS_URL_SCHEME", fmt.Sprintf("mcp.rag-search-mcp.url uses scheme %q.", parsed.Scheme), "Use http for the local Docker-first MCP endpoint unless a separate client setup documents otherwise.")
+	}
+	if parsed.Path != "/mcp" {
+		c.add(SeverityWarning, "OPENCODE_ALIAS_URL_PATH", fmt.Sprintf("mcp.rag-search-mcp.url path is %q.", parsed.Path), "Use the /mcp endpoint path.")
+	}
+	host := parsed.Hostname()
+	if !isLoopbackHost(host) {
+		c.add(SeverityWarning, "OPENCODE_ALIAS_NON_LOOPBACK", fmt.Sprintf("mcp.rag-search-mcp.url points to non-loopback host %q.", host), "Default client configuration should use 127.0.0.1. LAN-only client URLs require explicit operational documentation.")
+	}
+	expectedPort := c.effective("RAG_HTTP_PORT").value
+	actualPort := parsed.Port()
+	if actualPort == "" {
+		actualPort = defaultPortForScheme(parsed.Scheme)
+	}
+	if actualPort != "" && expectedPort != "" && actualPort != expectedPort {
+		c.add(SeverityWarning, "OPENCODE_ALIAS_PORT_MISMATCH", fmt.Sprintf("mcp.rag-search-mcp.url uses port %s, but RAG_HTTP_PORT resolves to %s.", actualPort, expectedPort), "Run make install to refresh opencode.json or update the client URL manually.")
+	}
+}
+
+func (c *checker) checkPort(key string) int {
+	value := c.effective(key).value
+	port, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		c.add(SeverityError, key+"_INTEGER", fmt.Sprintf("%s resolves to %q, which is not an integer.", key, value), fmt.Sprintf("Set %s to a TCP port between 1 and 65535.", key))
+		return 0
+	}
+	if port < 1 || port > 65535 {
+		c.add(SeverityError, key+"_RANGE", fmt.Sprintf("%s resolves to %d, outside the allowed range.", key, port), fmt.Sprintf("Set %s to a TCP port between 1 and 65535.", key))
+		return 0
+	}
+	return port
+}
+
+func (c *checker) checkPositiveInt(key string) int {
+	value := c.effective(key).value
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		c.add(SeverityError, key+"_INTEGER", fmt.Sprintf("%s resolves to %q, which is not an integer.", key, value), fmt.Sprintf("Set %s to a positive integer.", key))
+		return 0
+	}
+	if parsed <= 0 {
+		c.add(SeverityError, key+"_POSITIVE", fmt.Sprintf("%s resolves to %d.", key, parsed), fmt.Sprintf("Set %s to a positive integer.", key))
+		return 0
+	}
+	return parsed
+}
+
+func (c *checker) checkNonNegativeInt(key string) int {
+	value := c.effective(key).value
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		c.add(SeverityError, key+"_INTEGER", fmt.Sprintf("%s resolves to %q, which is not an integer.", key, value), fmt.Sprintf("Set %s to a non-negative integer.", key))
+		return 0
+	}
+	if parsed < 0 {
+		c.add(SeverityError, key+"_NON_NEGATIVE", fmt.Sprintf("%s resolves to %d.", key, parsed), fmt.Sprintf("Set %s to a non-negative integer.", key))
+		return 0
+	}
+	return parsed
+}
+
+func (c *checker) checkBool(key string) {
+	value := c.effective(key).value
+	if _, ok := parseBool(value); !ok {
+		c.add(SeverityError, key+"_BOOLEAN", fmt.Sprintf("%s resolves to %q, which is not a boolean.", key, value), fmt.Sprintf("Set %s to true or false.", key))
+	}
+}
+
+func (c *checker) checkOneOf(key string, allowed []string) {
+	value := strings.ToLower(strings.TrimSpace(c.effective(key).value))
+	for _, option := range allowed {
+		if value == option {
+			return
+		}
+	}
+	c.add(SeverityError, key+"_VALUE", fmt.Sprintf("%s resolves to %q.", key, c.effective(key).value), fmt.Sprintf("Set %s to one of: %s.", key, strings.Join(allowed, ", ")))
+}
+
+func (c *checker) checkNonEmpty(key string) {
+	if strings.TrimSpace(c.effective(key).value) == "" {
+		c.add(SeverityError, key+"_EMPTY", fmt.Sprintf("%s resolves to an empty value.", key), fmt.Sprintf("Set %s to a non-empty value.", key))
+	}
+}
+
+func (c *checker) checkURL(key string) {
+	value := strings.TrimSpace(c.effective(key).value)
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		c.add(SeverityError, key+"_URL", fmt.Sprintf("%s resolves to invalid URL %q.", key, value), fmt.Sprintf("Set %s to an http(s) URL, for example http://ollama:11434.", key))
+		return
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		c.add(SeverityError, key+"_URL_SCHEME", fmt.Sprintf("%s uses unsupported scheme %q.", key, parsed.Scheme), fmt.Sprintf("Set %s to an http(s) URL.", key))
+	}
+}
+
+func (c *checker) effective(key string) valueSource {
+	if value, ok := c.environ[key]; ok && strings.TrimSpace(value) != "" {
+		return valueSource{value: strings.TrimSpace(value), source: "process environment"}
+	}
+	if value, ok := c.dotenv[key]; ok && strings.TrimSpace(value) != "" {
+		return valueSource{value: strings.TrimSpace(value), source: ".env"}
+	}
+	if value, ok := defaults[key]; ok {
+		return valueSource{value: value, source: "defaults"}
+	}
+	return valueSource{}
+}
+
+func (c *checker) add(severity Severity, code string, message string, remediation string) {
+	c.report.Findings = append(c.report.Findings, Finding{
+		Severity:    severity,
+		Code:        code,
+		Message:     message,
+		Remediation: remediation,
+	})
+}
+
+func (c *checker) displayPath(path string) string {
+	cleanPath := filepath.Clean(path)
+	if c.hostRepoRoot != "" && c.hostRepoRoot != c.repoRoot {
+		if cleanPath == c.repoRoot {
+			return c.hostRepoRoot
+		}
+		prefix := c.repoRoot + string(filepath.Separator)
+		if strings.HasPrefix(cleanPath, prefix) {
+			return filepath.Join(c.hostRepoRoot, strings.TrimPrefix(cleanPath, prefix))
+		}
+	}
+	return cleanPath
+}
+
+func parseDotEnv(path string) (map[string]string, []Finding, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer file.Close()
+
+	values := map[string]string{}
+	var findings []Finding
+	scanner := bufio.NewScanner(file)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		rawLine := scanner.Text()
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			findings = append(findings, Finding{
+				Severity:    SeverityError,
+				Code:        "DOTENV_SYNTAX",
+				Message:     fmt.Sprintf(".env line %d is not KEY=VALUE syntax.", lineNumber),
+				Remediation: "Fix the line or comment it out with #.",
+			})
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		if !envKeyPattern.MatchString(key) {
+			findings = append(findings, Finding{
+				Severity:    SeverityError,
+				Code:        "DOTENV_KEY",
+				Message:     fmt.Sprintf(".env line %d has invalid key %q.", lineNumber, key),
+				Remediation: "Use shell-compatible environment keys such as RAG_HTTP_PORT.",
+			})
+			continue
+		}
+		if _, exists := values[key]; exists {
+			findings = append(findings, Finding{
+				Severity:    SeverityWarning,
+				Code:        "DOTENV_DUPLICATE_KEY",
+				Message:     fmt.Sprintf(".env defines %s more than once; the later value wins.", key),
+				Remediation: fmt.Sprintf("Keep a single %s entry in .env.", key),
+			})
+		}
+		values[key] = trimEnvValue(parts[1])
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, nil, err
+	}
+	return values, findings, nil
+}
+
+func trimEnvValue(raw string) string {
+	value := strings.TrimSpace(raw)
+	value = strings.Trim(value, `"'`)
+	return value
+}
+
+func environMap(environ []string) map[string]string {
+	values := map[string]string{}
+	for _, entry := range environ {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		values[key] = value
+	}
+	return values
+}
+
+func resolvePath(repoRoot string, raw string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return "", fmt.Errorf("path must not be empty")
+	}
+	clean := filepath.Clean(path)
+	base := filepath.Base(clean)
+	if base == "." || base == ".." {
+		return "", fmt.Errorf("terminal path segment must not be %q", base)
+	}
+	if filepath.IsAbs(clean) {
+		return clean, nil
+	}
+	return filepath.Clean(filepath.Join(repoRoot, clean)), nil
+}
+
+func parseBool(value string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func isLoopbackHost(host string) bool {
+	normalized := strings.ToLower(strings.Trim(host, "[] "))
+	if normalized == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(normalized)
+	return ip != nil && ip.IsLoopback()
+}
+
+func defaultPortForScheme(scheme string) string {
+	switch scheme {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
+}
+
+func uniqueNonEmpty(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || value == "." || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func isAncestor(parent string, child string) bool {
+	parent = filepath.Clean(parent)
+	child = filepath.Clean(child)
+	if parent == child || parent == "." || child == "." {
+		return false
+	}
+	return strings.HasPrefix(child, parent+string(filepath.Separator))
+}
+
+func isBroadPath(path string) bool {
+	clean := filepath.Clean(path)
+	if clean == string(filepath.Separator) {
+		return true
+	}
+	if strings.HasPrefix(clean, "/tmp/") || strings.HasPrefix(clean, "/private/tmp/") || strings.HasPrefix(clean, "/mnt/") {
+		return false
+	}
+	depth := strings.Count(strings.Trim(clean, string(filepath.Separator)), string(filepath.Separator)) + 1
+	return filepath.IsAbs(clean) && depth < 3
+}

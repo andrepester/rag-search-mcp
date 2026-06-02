@@ -4,6 +4,8 @@ set -eu
 compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
 compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
 
+sh ./shell/config-doctor.sh
+
 docker compose --project-directory "$compose_project_dir" -f "$compose_file" config >/dev/null
 
 if ! docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T rag-mcp true >/dev/null 2>&1; then
