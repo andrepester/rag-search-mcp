@@ -333,6 +333,8 @@ make clean-install FULL_RESET=1
 ```
 
 This deletes the resolved host paths for index and model persistence before reinstalling.
+The paths may point to new locations; `clean-install` creates missing parent directories while resolving them, then removes only the resolved `HOST_INDEX_DIR` and `HOST_MODELS_DIR` targets.
+Unsafe broad paths such as `/`, the repository root or parent, and `HOME` are refused.
 
 ### Can I expose the service beyond localhost?
 
