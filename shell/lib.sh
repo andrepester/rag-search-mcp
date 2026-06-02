@@ -200,7 +200,12 @@ to_abs_path() {
 		/*) target="$value" ;;
 		*) target="$repo_root/$value" ;;
 	esac
-	target="${target%/}"
+	while [ "$target" != "/" ]; do
+		case "$target" in
+			*/) target="${target%/}" ;;
+			*) break ;;
+		esac
+	done
 	if [ -z "$target" ]; then
 		printf '/'
 		return 0
@@ -214,9 +219,19 @@ to_abs_path() {
 	if [ -z "$dir_part" ]; then
 		dir_part="/"
 	fi
-	mkdir -p "$dir_part"
-	dir_abs=$(cd "$dir_part" && pwd -P)
-	printf '%s/%s' "$dir_abs" "$base_part"
+	if ! mkdir -p "$dir_part"; then
+		printf '%s\n' "cannot create parent path '$dir_part' for '$target'" >&2
+		return 1
+	fi
+	dir_abs=$(cd "$dir_part" && pwd -P) || {
+		printf '%s\n' "cannot resolve parent path '$dir_part' for '$target'" >&2
+		return 1
+	}
+	if [ "$dir_abs" = "/" ]; then
+		printf '/%s' "$base_part"
+	else
+		printf '%s/%s' "$dir_abs" "$base_part"
+	fi
 }
 
 parse_bool_01() {

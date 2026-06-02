@@ -127,7 +127,9 @@ test -d ./.smoke-override/code
 test -d ./.smoke-override/index
 test -d ./.smoke-override/models
 
-host_parent=$(dirname "$(pwd -P)")
+repo_root_abs=$(pwd -P)
+home_dir=${HOME-}
+host_parent=$(dirname "$repo_root_abs")
 absolute_root=$(mktemp -d "$host_parent/.bootstrap-smoke-absolute.XXXXXX")
 HOST_DOCS_DIR="$absolute_root/docs" HOST_CODE_DIR="$absolute_root/code" HOST_INDEX_DIR="$absolute_root/index" HOST_MODELS_DIR="$absolute_root/models" sh ./shell/install-bootstrap.sh </dev/null
 test -d "$absolute_root/docs"
@@ -143,9 +145,42 @@ test -d "$alongside_root/code"
 test -d "$alongside_root/index"
 test -d "$alongside_root/models"
 
+expect_clean_install_refused() {
+	label="$1"
+	shift
+	output=$(env "$@" FULL_RESET=1 CLEAN_INSTALL_SKIP_DOWN=1 CLEAN_INSTALL_SKIP_INSTALL=1 sh ./shell/clean-install.sh 2>&1) && status=0 || status=$?
+	if [ "$status" -eq 0 ]; then
+		printf '%s\n' "clean-install smoke: expected $label to be refused" >&2
+		exit 1
+	fi
+	if ! printf '%s\n' "$output" | grep -Fq 'FULL_RESET refused:'; then
+		printf '%s\n%s\n' "clean-install smoke: expected $label to fail in FULL_RESET safety checks" "$output" >&2
+		exit 1
+	fi
+}
+
 clean_install_tmp=".clean-install-smoke"
 rm -rf "$clean_install_tmp"
-HOST_INDEX_DIR="./$clean_install_tmp/new/index" HOST_MODELS_DIR="./$clean_install_tmp/new/models" FULL_RESET=1 CLEAN_INSTALL_SKIP_DOWN=1 CLEAN_INSTALL_SKIP_INSTALL=1 sh ./shell/clean-install.sh
-test -d "$clean_install_tmp/new"
-test ! -e "$clean_install_tmp/new/index"
-test ! -e "$clean_install_tmp/new/models"
+clean_install_rm_stub_dir="$clean_install_tmp/stub-bin"
+mkdir -p "$clean_install_rm_stub_dir"
+{
+	printf '%s\n' '#!/bin/sh'
+	printf '%s\n' "printf '%s\n' 'clean-install smoke: rm stub called unexpectedly' >&2"
+	printf '%s\n' 'exit 64'
+} > "$clean_install_rm_stub_dir/rm"
+chmod +x "$clean_install_rm_stub_dir/rm"
+
+HOST_INDEX_DIR="./$clean_install_tmp/deep/new/index" HOST_MODELS_DIR="./$clean_install_tmp/deep/new/models" FULL_RESET=1 CLEAN_INSTALL_SKIP_DOWN=1 CLEAN_INSTALL_SKIP_INSTALL=1 sh ./shell/clean-install.sh
+test -d "$clean_install_tmp/deep/new"
+test ! -e "$clean_install_tmp/deep/new/index"
+test ! -e "$clean_install_tmp/deep/new/models"
+
+clean_install_stub_path="PATH=$repo_root_abs/$clean_install_rm_stub_dir:$PATH"
+clean_install_safe_models="./$clean_install_tmp/refusal/models"
+expect_clean_install_refused 'root path' "$clean_install_stub_path" 'HOST_INDEX_DIR=/' "HOST_MODELS_DIR=$clean_install_safe_models"
+expect_clean_install_refused 'repo root path' "$clean_install_stub_path" "HOST_INDEX_DIR=$repo_root_abs" "HOST_MODELS_DIR=$clean_install_safe_models"
+expect_clean_install_refused 'repo parent path' "$clean_install_stub_path" "HOST_INDEX_DIR=$host_parent" "HOST_MODELS_DIR=$clean_install_safe_models"
+if [ -n "$home_dir" ]; then
+	expect_clean_install_refused 'HOME path' "$clean_install_stub_path" "HOST_INDEX_DIR=$home_dir" "HOST_MODELS_DIR=$clean_install_safe_models"
+fi
+expect_clean_install_refused 'broad absolute path' "$clean_install_stub_path" 'HOST_INDEX_DIR=/usr' "HOST_MODELS_DIR=$clean_install_safe_models"
