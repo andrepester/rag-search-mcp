@@ -3,6 +3,7 @@ opencode.json
 opencode.json.*
 .env
 AGENTS.md
+.agents/
 .venv/
 __pycache__/
 *.pyc
