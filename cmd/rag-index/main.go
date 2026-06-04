@@ -80,6 +80,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		slog.Int("docs_files", stats.DocsFiles),
 		slog.Int("code_files", stats.CodeFiles),
 		slog.Int("chunks", stats.Chunks),
+		slog.Int("changed_files", stats.ChangedFiles),
+		slog.Int("deleted_files", stats.DeletedFiles),
+		slog.Int("reused_files", stats.ReusedFiles),
+		slog.Int("embedded_chunks", stats.EmbeddedChunks),
+		slog.Int("reused_chunks", stats.ReusedChunks),
+		slog.String("generation", stats.Generation),
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 	)
 	return nil

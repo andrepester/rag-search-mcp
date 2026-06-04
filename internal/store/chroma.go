@@ -33,10 +33,11 @@ type queryResponse struct {
 }
 
 type getResponse struct {
-	IDs       []string         `json:"ids"`
-	Documents []*string        `json:"documents"`
-	Metadatas []map[string]any `json:"metadatas"`
-	Include   []string         `json:"include"`
+	IDs        []string         `json:"ids"`
+	Documents  []*string        `json:"documents"`
+	Metadatas  []map[string]any `json:"metadatas"`
+	Embeddings [][]float64      `json:"embeddings"`
+	Include    []string         `json:"include"`
 }
 
 type QueryMatch struct {
@@ -44,6 +45,13 @@ type QueryMatch struct {
 	Document string
 	Metadata map[string]any
 	Distance *float64
+}
+
+type Record struct {
+	ID        string
+	Document  string
+	Metadata  map[string]any
+	Embedding []float64
 }
 
 func NewChromaClient(baseURL, tenant, database string) *ChromaClient {
@@ -140,6 +148,26 @@ func (c *ChromaClient) Query(ctx context.Context, collectionID string, embedding
 	return matches, nil
 }
 
+func (c *ChromaClient) GetByChunkID(ctx context.Context, collectionID, generation, chunkID string) (*QueryMatch, error) {
+	where := WhereAnd(
+		map[string]any{"index_generation": generation},
+		map[string]any{"chunk_id": chunkID},
+	)
+	records, err := c.getRecords(ctx, collectionID, where, false, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
+	record := records[0]
+	return &QueryMatch{
+		ID:       record.ID,
+		Document: record.Document,
+		Metadata: record.Metadata,
+	}, nil
+}
+
 func (c *ChromaClient) GetByID(ctx context.Context, collectionID, chunkID string) (*QueryMatch, error) {
 	payload := map[string]any{
 		"ids":     []string{chunkID},
@@ -164,7 +192,16 @@ func (c *ChromaClient) GetByID(ctx context.Context, collectionID, chunkID string
 	return match, nil
 }
 
-func (c *ChromaClient) ListSourcePaths(ctx context.Context, collectionID string, scope string) ([]string, error) {
+func (c *ChromaClient) GetRecordsBySource(ctx context.Context, collectionID, generation, scope, sourcePath string) ([]Record, error) {
+	where := WhereAnd(
+		map[string]any{"index_generation": generation},
+		map[string]any{"scope": scope},
+		map[string]any{"source_path": sourcePath},
+	)
+	return c.getRecords(ctx, collectionID, where, true, 0)
+}
+
+func (c *ChromaClient) ListSourcePaths(ctx context.Context, collectionID string, generation string, scope string) ([]string, error) {
 	all := make(map[string]struct{})
 	var scopes []string
 	switch scope {
@@ -177,8 +214,12 @@ func (c *ChromaClient) ListSourcePaths(ctx context.Context, collectionID string,
 	for _, currentScope := range scopes {
 		offset := 0
 		for {
+			where := WhereAnd(
+				map[string]any{"index_generation": generation},
+				map[string]any{"scope": currentScope},
+			)
 			payload := map[string]any{
-				"where":   map[string]any{"scope": currentScope},
+				"where":   where,
 				"include": []string{"metadatas"},
 				"limit":   500,
 				"offset":  offset,
@@ -217,8 +258,84 @@ func (c *ChromaClient) ListSourcePaths(ctx context.Context, collectionID string,
 	return out, nil
 }
 
+func (c *ChromaClient) DeleteWhere(ctx context.Context, collectionID string, where map[string]any) error {
+	payload := map[string]any{"where": where}
+	return c.doJSON(ctx, http.MethodPost, c.collectionPath("collections", collectionID, "delete"), nil, payload, nil)
+}
+
 func (c *ChromaClient) DeleteCollection(ctx context.Context, collectionID string) error {
 	return c.doJSON(ctx, http.MethodDelete, c.collectionPath("collections", collectionID), nil, nil, nil)
+}
+
+func (c *ChromaClient) getRecords(ctx context.Context, collectionID string, where map[string]any, includeEmbeddings bool, limit int) ([]Record, error) {
+	include := []string{"documents", "metadatas"}
+	if includeEmbeddings {
+		include = append(include, "embeddings")
+	}
+
+	pageLimit := 500
+	if limit > 0 && limit < pageLimit {
+		pageLimit = limit
+	}
+
+	out := make([]Record, 0)
+	offset := 0
+	for {
+		payload := map[string]any{
+			"where":   where,
+			"include": include,
+			"limit":   pageLimit,
+			"offset":  offset,
+		}
+
+		var resp getResponse
+		if err := c.doJSON(ctx, http.MethodPost, c.collectionPath("collections", collectionID, "get"), nil, payload, &resp); err != nil {
+			if isNotFound(err) {
+				break
+			}
+			return nil, err
+		}
+		if len(resp.IDs) == 0 {
+			break
+		}
+
+		for i, id := range resp.IDs {
+			record := Record{ID: id, Metadata: map[string]any{}}
+			if i < len(resp.Documents) && resp.Documents[i] != nil {
+				record.Document = *resp.Documents[i]
+			}
+			if i < len(resp.Metadatas) && resp.Metadatas[i] != nil {
+				record.Metadata = resp.Metadatas[i]
+			}
+			if i < len(resp.Embeddings) {
+				record.Embedding = append([]float64(nil), resp.Embeddings[i]...)
+			}
+			out = append(out, record)
+			if limit > 0 && len(out) >= limit {
+				return out, nil
+			}
+		}
+
+		offset += len(resp.IDs)
+	}
+
+	return out, nil
+}
+
+func WhereAnd(filters ...map[string]any) map[string]any {
+	parts := make([]map[string]any, 0, len(filters))
+	for _, filter := range filters {
+		if len(filter) > 0 {
+			parts = append(parts, filter)
+		}
+	}
+	if len(parts) == 0 {
+		return map[string]any{}
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return map[string]any{"$and": parts}
 }
 
 func (c *ChromaClient) collectionPath(parts ...string) string {

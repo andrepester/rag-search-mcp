@@ -17,6 +17,7 @@ type Config struct {
 	ChromaTenant     string
 	ChromaDatabase   string
 	CollectionName   string
+	IndexStateDir    string
 	OllamaHost       string
 	EmbedModel       string
 	ChunkSize        int
@@ -91,6 +92,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to resolve RAG_CODE_DIR: %w", err)
 	}
+	indexStateDir, err := filepath.Abs(env("RAG_INDEX_STATE_DIR", "./data/index-state"))
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to resolve RAG_INDEX_STATE_DIR: %w", err)
+	}
 
 	cfg := Config{
 		Host:             env("RAG_HTTP_HOST", "127.0.0.1"),
@@ -101,6 +106,7 @@ func Load() (Config, error) {
 		ChromaTenant:     env("RAG_CHROMA_TENANT", "default_tenant"),
 		ChromaDatabase:   env("RAG_CHROMA_DATABASE", "default_database"),
 		CollectionName:   env("RAG_COLLECTION_NAME", "rag"),
+		IndexStateDir:    indexStateDir,
 		OllamaHost:       strings.TrimRight(env("OLLAMA_HOST", "http://host.docker.internal:11434"), "/"),
 		EmbedModel:       env("EMBED_MODEL", "nomic-embed-text"),
 		ChunkSize:        chunkSize,

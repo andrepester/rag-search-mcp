@@ -66,6 +66,7 @@ func TestGoldenQueries(t *testing.T) {
 		DocsDir:          filepath.Join("testdata", "golden", "docs"),
 		CodeDir:          filepath.Join("testdata", "golden", "code"),
 		CollectionName:   "rag-golden",
+		IndexStateDir:    t.TempDir(),
 		EmbedModel:       suite.Settings.EmbeddingModel,
 		ChunkSize:        suite.Settings.ChunkSize,
 		ChunkOverlap:     suite.Settings.ChunkOverlap,
@@ -403,6 +404,11 @@ func (f *goldenChromaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if r.Method == http.MethodPost && r.URL.Path == base+"/collections/"+f.collectionID+"/delete" {
+		f.handleDelete(w, r)
+		return
+	}
+
 	http.Error(w, fmt.Sprintf("unhandled route %s %s", r.Method, r.URL.Path), http.StatusNotFound)
 }
 
@@ -536,19 +542,48 @@ func (f *goldenChromaBackend) handleGet(w http.ResponseWriter, r *http.Request) 
 	ids := make([]string, 0, len(matches))
 	docs := make([]*string, 0, len(matches))
 	metas := make([]map[string]any, 0, len(matches))
+	embeddings := make([][]float64, 0, len(matches))
 	for _, record := range matches {
 		ids = append(ids, record.ID)
 		doc := record.Document
 		docs = append(docs, &doc)
 		metas = append(metas, record.Metadata)
+		embeddings = append(embeddings, record.Embedding)
 	}
 
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ids":       ids,
-		"documents": docs,
-		"metadatas": metas,
-		"include":   []string{"documents", "metadatas"},
+		"ids":        ids,
+		"documents":  docs,
+		"metadatas":  metas,
+		"embeddings": embeddings,
+		"include":    []string{"documents", "metadatas", "embeddings"},
 	})
+}
+
+func (f *goldenChromaBackend) handleDelete(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Where map[string]any `json:"where"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	f.mu.Lock()
+	nextOrder := make([]string, 0, len(f.order))
+	for _, id := range f.order {
+		record := f.records[id]
+		if metadataMatchesWhere(record.Metadata, payload.Where) {
+			delete(f.records, id)
+			continue
+		}
+		nextOrder = append(nextOrder, id)
+	}
+	f.order = nextOrder
+	f.mu.Unlock()
+
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{"deleted": true})
 }
 
 func (f *goldenChromaBackend) recordsByID(ids []string) []goldenChromaRecord {
@@ -570,21 +605,11 @@ func (f *goldenChromaBackend) filterRecords(where map[string]any) []goldenChroma
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	var scopeFilter string
-	if where != nil {
-		if scope, ok := where["scope"].(string); ok {
-			scopeFilter = scope
-		}
-	}
-
 	out := make([]goldenChromaRecord, 0, len(f.order))
 	for _, id := range f.order {
 		record := f.records[id]
-		if scopeFilter != "" {
-			scope, _ := record.Metadata["scope"].(string)
-			if !strings.EqualFold(scope, scopeFilter) {
-				continue
-			}
+		if !metadataMatchesWhere(record.Metadata, where) {
+			continue
 		}
 		out = append(out, copyGoldenRecord(record))
 	}

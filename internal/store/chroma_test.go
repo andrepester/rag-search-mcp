@@ -76,7 +76,11 @@ func TestListSourcePathsPaginatesDeduplicatesAndSorts(t *testing.T) {
 			return
 		}
 
-		scope, _ := payload.Where["scope"].(string)
+		scope := whereString(payload.Where, "scope")
+		generation := whereString(payload.Where, "index_generation")
+		if generation != "gen-1" {
+			t.Fatalf("generation filter = %q, want gen-1", generation)
+		}
 		if scope == "docs" && payload.Offset == 0 {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ids":       []string{"d1", "d2"},
@@ -101,7 +105,7 @@ func TestListSourcePathsPaginatesDeduplicatesAndSorts(t *testing.T) {
 	defer server.Close()
 
 	client := NewChromaClient(server.URL, "default_tenant", "default_database")
-	sources, err := client.ListSourcePaths(context.Background(), "col-1", "all")
+	sources, err := client.ListSourcePaths(context.Background(), "col-1", "gen-1", "all")
 	if err != nil {
 		t.Fatalf("ListSourcePaths() failed: %v", err)
 	}
@@ -117,6 +121,50 @@ func TestListSourcePathsPaginatesDeduplicatesAndSorts(t *testing.T) {
 	}
 }
 
+func TestGetByChunkIDFiltersActiveGeneration(t *testing.T) {
+	base := "/api/v2/tenants/default_tenant/databases/default_database"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != base+"/collections/col-1/get" {
+			http.NotFound(w, r)
+			return
+		}
+
+		var payload struct {
+			Where map[string]any `json:"where"`
+			Limit int            `json:"limit"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if payload.Limit != 1 {
+			t.Fatalf("limit = %d, want 1", payload.Limit)
+		}
+		if got := whereString(payload.Where, "index_generation"); got != "gen-active" {
+			t.Fatalf("generation filter = %q, want gen-active", got)
+		}
+		if got := whereString(payload.Where, "chunk_id"); got != "docs:abc" {
+			t.Fatalf("chunk_id filter = %q, want docs:abc", got)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ids":       []string{"gen-active:1"},
+			"documents": []*string{ptr("chunk text")},
+			"metadatas": []map[string]any{{"chunk_id": "docs:abc", "scope": "docs"}},
+		})
+	}))
+	defer server.Close()
+
+	client := NewChromaClient(server.URL, "default_tenant", "default_database")
+	match, err := client.GetByChunkID(context.Background(), "col-1", "gen-active", "docs:abc")
+	if err != nil {
+		t.Fatalf("GetByChunkID() failed: %v", err)
+	}
+	if match == nil || match.Document != "chunk text" {
+		t.Fatalf("unexpected match: %+v", match)
+	}
+}
+
 func TestIsNotFoundFalseForOtherError(t *testing.T) {
 	if IsNotFound(errors.New("nope")) {
 		t.Fatal("expected false for non-http error")
@@ -129,4 +177,18 @@ func ptr(v string) *string {
 
 func ptrFloat(v float64) *float64 {
 	return &v
+}
+
+func whereString(where map[string]any, key string) string {
+	if value, ok := where[key].(string); ok {
+		return value
+	}
+	clauses, _ := where["$and"].([]any)
+	for _, clause := range clauses {
+		clauseMap, _ := clause.(map[string]any)
+		if value, ok := clauseMap[key].(string); ok {
+			return value
+		}
+	}
+	return ""
 }
