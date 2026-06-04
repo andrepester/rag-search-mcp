@@ -25,15 +25,17 @@
 - `rag-mcp`, `chroma`, and `ollama` containers can be stopped, rebuilt, or recreated without treating their writable layers as authoritative data stores.
 - `HOST_DOCS_DIR` and `HOST_CODE_DIR` are mounted read-only into `rag-mcp`; the app does not own, mutate, or back up those sources.
 - `HOST_INDEX_DIR` persists Chroma index state across container stop/start and non-destructive reinstall flows.
+- `HOST_INDEX_DIR/rag-state` persists the active index generation pointer used by atomic reindex switching.
 - `HOST_MODELS_DIR` persists Ollama model files across container stop/start and non-destructive reinstall flows.
 - `.env` is host-local configuration and should be treated as operator-managed setup state, not generated application data.
 - `make clean-install FULL_RESET=1` intentionally deletes the resolved `HOST_INDEX_DIR` and `HOST_MODELS_DIR` paths before reinstalling; source mounts are not reset by this command.
 - Backup and restore are outside the application boundary for v1. Operators should back up host source directories and persistence paths with normal host-level tooling if they need recovery guarantees.
-- Future work that introduces active pointers, build collections, or other index metadata must store required durable artifacts under the documented host persistence boundary or explicitly revisit this ADR.
+- Future work that introduces additional active pointers, build collections, or other index metadata must store required durable artifacts under the documented host persistence boundary or explicitly revisit this ADR.
 
 ## Validation / Evidence
 
 - `docker/docker-compose.yml` bind-mounts `HOST_INDEX_DIR` to Chroma's data path and `HOST_MODELS_DIR` to Ollama's model path.
+- `docker/docker-compose.yml` bind-mounts `HOST_INDEX_DIR/rag-state` to `rag-mcp` as the active-generation pointer state path.
 - `docker/docker-compose.yml` bind-mounts `HOST_DOCS_DIR` and `HOST_CODE_DIR` read-only into `rag-mcp`.
 - `make down` maps to `docker compose stop`, so it does not remove containers or host-mounted data.
 - `shell/clean-install.sh` preserves `HOST_INDEX_DIR` and `HOST_MODELS_DIR` by default and deletes them only when `FULL_RESET=1` is set.

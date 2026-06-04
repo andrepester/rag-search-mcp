@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/andrepester/rag-search-mcp/internal/config"
+	"github.com/andrepester/rag-search-mcp/internal/indexstate"
 	"github.com/andrepester/rag-search-mcp/internal/ingest"
 	"github.com/andrepester/rag-search-mcp/internal/observability"
 	"github.com/andrepester/rag-search-mcp/internal/ollama"
@@ -18,6 +19,7 @@ import (
 type Service struct {
 	Config       *config.Config
 	Ingest       *ingest.Service
+	IndexState   *indexstate.Store
 	Ollama       *ollama.Client
 	Chroma       *store.ChromaClient
 	collectionMu sync.RWMutex
@@ -73,6 +75,7 @@ func NewService(cfg *config.Config, ingestSvc *ingest.Service, ollamaClient *oll
 	return &Service{
 		Config:       cfg,
 		Ingest:       ingestSvc,
+		IndexState:   indexstate.New(cfg.IndexStateDir),
 		Ollama:       ollamaClient,
 		Chroma:       chromaClient,
 		collectionID: collectionID,
@@ -126,6 +129,13 @@ func (s *Service) Search(ctx context.Context, query string, topK int, scope stri
 	}
 
 	scopeUsed := normalizeScope(scope, s.Config.DefaultScope)
+	activeGeneration, err := s.activeGeneration()
+	if err != nil {
+		return SearchResponse{}, err
+	}
+	if activeGeneration == "" {
+		return SearchResponse{Query: query, ScopeUsed: scopeUsed, SourceFilter: sourceFilter, Matches: []SearchMatch{}}, nil
+	}
 	if topK <= 0 {
 		topK = 5
 	}
@@ -141,9 +151,9 @@ func (s *Service) Search(ctx context.Context, query string, topK int, scope stri
 		return SearchResponse{Query: query, ScopeUsed: scopeUsed, SourceFilter: sourceFilter, Matches: []SearchMatch{}}, nil
 	}
 
-	where := map[string]any{}
+	where := map[string]any{"index_generation": activeGeneration}
 	if scopeUsed == "docs" || scopeUsed == "code" {
-		where["scope"] = scopeUsed
+		where = store.WhereAnd(where, map[string]any{"scope": scopeUsed})
 	}
 
 	candidates, err := s.Chroma.Query(ctx, s.getCollectionID(), embeddings[0], min(topK*8, max(20, s.Config.MaxTopK)), where)
@@ -172,7 +182,7 @@ func (s *Service) Search(ctx context.Context, query string, topK int, scope stri
 		}
 
 		matches = append(matches, SearchMatch{
-			ChunkID:    candidate.ID,
+			ChunkID:    publicChunkID(candidate),
 			SourcePath: sourcePath,
 			Scope:      candidateScope,
 			ChunkIndex: chunkIdx,
@@ -198,7 +208,15 @@ func (s *Service) GetChunk(ctx context.Context, chunkID string) ChunkResponse {
 		return ChunkResponse{Found: false, ChunkID: chunkID, Error: "chunk_id is required"}
 	}
 
-	match, err := s.Chroma.GetByID(ctx, s.getCollectionID(), chunkID)
+	activeGeneration, err := s.activeGeneration()
+	if err != nil {
+		return ChunkResponse{Found: false, ChunkID: chunkID, Error: err.Error()}
+	}
+	if activeGeneration == "" {
+		return ChunkResponse{Found: false, ChunkID: chunkID}
+	}
+
+	match, err := s.Chroma.GetByChunkID(ctx, s.getCollectionID(), activeGeneration, chunkID)
 	if err != nil {
 		return ChunkResponse{Found: false, ChunkID: chunkID, Error: err.Error()}
 	}
@@ -232,7 +250,14 @@ func (s *Service) GetChunk(ctx context.Context, chunkID string) ChunkResponse {
 
 func (s *Service) ListSources(ctx context.Context, scope string) (ListSourcesResponse, error) {
 	scopeUsed := normalizeScope(scope, s.Config.DefaultScope)
-	sources, err := s.Chroma.ListSourcePaths(ctx, s.getCollectionID(), scopeUsed)
+	activeGeneration, err := s.activeGeneration()
+	if err != nil {
+		return ListSourcesResponse{}, err
+	}
+	if activeGeneration == "" {
+		return ListSourcesResponse{ScopeUsed: scopeUsed, Sources: []string{}}, nil
+	}
+	sources, err := s.Chroma.ListSourcePaths(ctx, s.getCollectionID(), activeGeneration, scopeUsed)
 	if err != nil {
 		return ListSourcesResponse{}, err
 	}
@@ -308,4 +333,22 @@ func (s *Service) setCollectionID(collectionID string) {
 	s.collectionMu.Lock()
 	defer s.collectionMu.Unlock()
 	s.collectionID = collectionID
+}
+
+func (s *Service) activeGeneration() (string, error) {
+	manifest, err := s.IndexState.Load()
+	if err != nil {
+		return "", err
+	}
+	if manifest.CollectionName != "" && manifest.CollectionName != s.Config.CollectionName {
+		return "", nil
+	}
+	return strings.TrimSpace(manifest.ActiveGeneration), nil
+}
+
+func publicChunkID(match store.QueryMatch) string {
+	if chunkID, ok := match.Metadata["chunk_id"].(string); ok && chunkID != "" {
+		return chunkID
+	}
+	return match.ID
 }

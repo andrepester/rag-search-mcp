@@ -59,7 +59,7 @@ func run(args []string, stdout io.Writer) error {
 	if err := bootstrap.EnsureHostDataDirs(absRoot); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(stdout, "ensured host mount directories for docs, code, index, and models"); err != nil {
+	if _, err := fmt.Fprintln(stdout, "ensured host mount directories for docs, code, index state, and models"); err != nil {
 		return err
 	}
 

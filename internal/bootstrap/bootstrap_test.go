@@ -111,6 +111,7 @@ func TestEnsureHostDataDirsCreatesDefaults(t *testing.T) {
 		filepath.Join(repoRoot, "data", "docs"),
 		filepath.Join(repoRoot, "data", "code"),
 		filepath.Join(repoRoot, "data", "index"),
+		filepath.Join(repoRoot, "data", "index", "rag-state"),
 		filepath.Join(repoRoot, "data", "models"),
 	} {
 		info, err := os.Stat(dir)
@@ -121,6 +122,7 @@ func TestEnsureHostDataDirsCreatesDefaults(t *testing.T) {
 			t.Fatalf("expected %s to be a directory", dir)
 		}
 	}
+	assertFileMode(t, filepath.Join(repoRoot, "data", "index", "rag-state"), 0o777)
 }
 
 func TestEnsureHostDataDirsUsesConfiguredHostPaths(t *testing.T) {
@@ -138,6 +140,7 @@ func TestEnsureHostDataDirsUsesConfiguredHostPaths(t *testing.T) {
 		filepath.Join(repoRoot, "custom", "docs"),
 		filepath.Join(repoRoot, "custom", "code"),
 		filepath.Join(repoRoot, "custom", "index"),
+		filepath.Join(repoRoot, "custom", "index", "rag-state"),
 		filepath.Join(repoRoot, "custom", "models"),
 	} {
 		info, err := os.Stat(dir)
@@ -148,6 +151,7 @@ func TestEnsureHostDataDirsUsesConfiguredHostPaths(t *testing.T) {
 			t.Fatalf("expected %s to be a directory", dir)
 		}
 	}
+	assertFileMode(t, filepath.Join(repoRoot, "custom", "index", "rag-state"), 0o777)
 }
 
 func TestEnsureHostDataDirsPrefersProcessEnvOverDotEnv(t *testing.T) {
@@ -170,6 +174,7 @@ func TestEnsureHostDataDirsPrefersProcessEnvOverDotEnv(t *testing.T) {
 		filepath.Join(repoRoot, "from-env", "docs"),
 		filepath.Join(repoRoot, "from-env", "code"),
 		filepath.Join(repoRoot, "from-env", "index"),
+		filepath.Join(repoRoot, "from-env", "index", "rag-state"),
 		filepath.Join(repoRoot, "from-env", "models"),
 	} {
 		info, err := os.Stat(dir)
@@ -180,6 +185,7 @@ func TestEnsureHostDataDirsPrefersProcessEnvOverDotEnv(t *testing.T) {
 			t.Fatalf("expected %s to be a directory", dir)
 		}
 	}
+	assertFileMode(t, filepath.Join(repoRoot, "from-env", "index", "rag-state"), 0o777)
 
 	if _, err := os.Stat(filepath.Join(repoRoot, "from-dotenv", "docs")); !os.IsNotExist(err) {
 		t.Fatalf("expected .env docs path to stay absent, got err=%v", err)

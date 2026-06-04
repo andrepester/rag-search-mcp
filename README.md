@@ -29,8 +29,10 @@ flowchart TD
     C["Mounted data/code/ (can be empty)"] --> B
     B --> D["Ollama embeddings"]
     D --> E["Chroma collection: rag"]
+    B --> H["Active index generation pointer"]
 
     F["OpenCode"] -->|remote MCP| G["rag-mcp /mcp"]
+    G --> H
     G --> E
 ```
 
@@ -153,6 +155,19 @@ doctor run before runtime checks; `warning` findings are printed and runtime che
 quiet Compose build/pull output when the local Compose version supports it. Set
 `COMPOSE_UP_FLAGS=` to see full Compose build output while debugging.
 
+### Reindex consistency
+
+Reindexing uses a single global Chroma collection and an active index generation
+pointer. A reindex run writes new or changed source chunks into a new generation
+and reuses unchanged source chunks when their fingerprint still matches. Search,
+chunk lookup, and source listing continue to read the previous active generation
+until the new generation is complete and the pointer is atomically switched.
+
+If reindexing fails before that switch, the previous query state remains active.
+Deleted sources are no longer returned after a successful switch because queries
+filter by the new active generation. Old generations are cleanup state; query
+correctness depends on the active pointer, not on immediate cleanup.
+
 Lifecycle examples:
 
 ```bash
@@ -184,7 +199,9 @@ Runtime logs are JSON by default and use stable event names:
 
 Common log fields include `component`, `event`, `tool`, `scope`, `top_k`,
 `matches`, `sources`, `files`, `docs_files`, `code_files`, `chunks`,
-`duration_ms`, `dependency`, and `hint`. CLI `reindex_start` logs also include
+`duration_ms`, `dependency`, `hint`, `generation`, `changed_files`,
+`deleted_files`, `reused_files`, `embedded_chunks`, and `reused_chunks`. CLI
+`reindex_start` logs also include
 the configured `docs_dir` and `code_dir` source roots so operators can identify
 which source configuration a run used. Logs intentionally do not include request
 bodies, query text, chunk text, embeddings, or result snippets.
@@ -238,6 +255,7 @@ boundary.
 | `RAG_CHROMA_TENANT` | `default_tenant` | Chroma tenant |
 | `RAG_CHROMA_DATABASE` | `default_database` | Chroma database |
 | `RAG_COLLECTION_NAME` | `rag` | Chroma collection name |
+| `RAG_INDEX_STATE_DIR` | `./data/index-state` | Internal active-generation pointer directory; Docker maps it under `HOST_INDEX_DIR/rag-state` |
 | `RAG_SCOPE_DEFAULT` | `all` | Default search scope |
 | `RAG_CHUNK_SIZE` | `1200` | Chunk size in characters |
 | `RAG_CHUNK_OVERLAP` | `200` | Chunk overlap in characters |
@@ -385,6 +403,11 @@ make reindex
 ```
 
 The architecture decision for incompatible index, ingestion, and query changes is also reindex-first: old index artifacts do not require a migration path when they can be rebuilt from mounted sources. See `docs/architecture/RAG-SEARCH-MCP-ADR-2026-05-31-reindex-first-schema-evolution.md`.
+
+The current reindex implementation keeps one global Chroma collection and
+switches an active generation pointer instead of rotating collections. Existing
+indexes created before this generation metadata existed require one fresh
+`make reindex`. See `docs/architecture/RAG-SEARCH-MCP-ADR-2026-06-04-atomic-generation-switch.md`.
 
 ### `make doctor` or `make reindex` says the stack is not running
 

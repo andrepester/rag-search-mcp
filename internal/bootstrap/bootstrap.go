@@ -12,19 +12,20 @@ import (
 )
 
 const (
-	defaultHTTPPort  = 8765
-	envFileName      = ".env"
-	envExampleName   = ".env.example"
-	opencodeName     = "opencode.json"
-	mcpAlias         = "rag-search-mcp"
-	hostIndexDir     = "./data/index"
-	hostModelsDir    = "./data/models"
-	hostDocsDir      = "./data/docs"
-	hostCodeDir      = "./data/code"
-	hostIndexEnvKey  = "HOST_INDEX_DIR"
-	hostModelsEnvKey = "HOST_MODELS_DIR"
-	hostDocsEnvKey   = "HOST_DOCS_DIR"
-	hostCodeEnvKey   = "HOST_CODE_DIR"
+	defaultHTTPPort   = 8765
+	envFileName       = ".env"
+	envExampleName    = ".env.example"
+	opencodeName      = "opencode.json"
+	mcpAlias          = "rag-search-mcp"
+	hostIndexDir      = "./data/index"
+	hostModelsDir     = "./data/models"
+	hostDocsDir       = "./data/docs"
+	hostCodeDir       = "./data/code"
+	hostIndexStateDir = "rag-state"
+	hostIndexEnvKey   = "HOST_INDEX_DIR"
+	hostModelsEnvKey  = "HOST_MODELS_DIR"
+	hostDocsEnvKey    = "HOST_DOCS_DIR"
+	hostCodeEnvKey    = "HOST_CODE_DIR"
 )
 
 func EnsureEnvFile(repoRoot string) (bool, error) {
@@ -130,6 +131,14 @@ func EnsureHostDataDirs(repoRoot string) error {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create directory %s: %w", dir, err)
 		}
+	}
+
+	indexStateDir := filepath.Join(indexDir, hostIndexStateDir)
+	if err := os.MkdirAll(indexStateDir, 0o777); err != nil {
+		return fmt.Errorf("create directory %s: %w", indexStateDir, err)
+	}
+	if err := os.Chmod(indexStateDir, 0o777); err != nil {
+		return fmt.Errorf("chmod directory %s: %w", indexStateDir, err)
 	}
 
 	return nil

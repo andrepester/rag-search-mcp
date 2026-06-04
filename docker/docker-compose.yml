@@ -43,6 +43,7 @@ services:
       RAG_CHROMA_TENANT: ${RAG_CHROMA_TENANT:-default_tenant}
       RAG_CHROMA_DATABASE: ${RAG_CHROMA_DATABASE:-default_database}
       RAG_COLLECTION_NAME: ${RAG_COLLECTION_NAME:-rag}
+      RAG_INDEX_STATE_DIR: /data/index-state
       RAG_SCOPE_DEFAULT: ${RAG_SCOPE_DEFAULT:-all}
       RAG_CHUNK_SIZE: ${RAG_CHUNK_SIZE:-1200}
       RAG_CHUNK_OVERLAP: ${RAG_CHUNK_OVERLAP:-200}
@@ -54,3 +55,4 @@ services:
     volumes:
       - ${HOST_DOCS_DIR:-./data/docs}:/data/docs:ro
       - ${HOST_CODE_DIR:-./data/code}:/data/code:ro
+      - ${HOST_INDEX_DIR:-./data/index}/rag-state:/data/index-state

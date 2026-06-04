@@ -28,8 +28,8 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	if cfg.EnableCodeIngest {
 		t.Fatal("EnableCodeIngest = true, want false")
 	}
-	if !filepath.IsAbs(cfg.DocsDir) || !filepath.IsAbs(cfg.CodeDir) {
-		t.Fatal("expected absolute docs/code paths")
+	if !filepath.IsAbs(cfg.DocsDir) || !filepath.IsAbs(cfg.CodeDir) || !filepath.IsAbs(cfg.IndexStateDir) {
+		t.Fatal("expected absolute docs/code/index state paths")
 	}
 	if cfg.Host != "127.0.0.1" {
 		t.Fatalf("Host = %q, want 127.0.0.1", cfg.Host)

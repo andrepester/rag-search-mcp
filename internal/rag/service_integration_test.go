@@ -59,6 +59,7 @@ func TestServiceReindexAndSearchScopes(t *testing.T) {
 		DocsDir:          docsDir,
 		CodeDir:          codeDir,
 		CollectionName:   "rag",
+		IndexStateDir:    t.TempDir(),
 		EmbedModel:       "test-embed",
 		ChunkSize:        120,
 		ChunkOverlap:     20,
@@ -155,10 +156,11 @@ type fakeChromaBackend struct {
 }
 
 type fakeRecord struct {
-	ID       string
-	Document string
-	Metadata map[string]any
-	Distance float64
+	ID        string
+	Document  string
+	Metadata  map[string]any
+	Embedding []float64
+	Distance  float64
 }
 
 func newFakeChromaBackend() *fakeChromaBackend {
@@ -188,9 +190,10 @@ func (f *fakeChromaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodPost && r.URL.Path == base+"/collections/"+f.collectionID+"/upsert" {
 		var payload struct {
-			IDs       []string         `json:"ids"`
-			Documents []string         `json:"documents"`
-			Metadatas []map[string]any `json:"metadatas"`
+			IDs        []string         `json:"ids"`
+			Documents  []string         `json:"documents"`
+			Metadatas  []map[string]any `json:"metadatas"`
+			Embeddings [][]float64      `json:"embeddings"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -213,7 +216,11 @@ func (f *fakeChromaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if i < len(payload.Documents) {
 				doc = payload.Documents[i]
 			}
-			f.records[id] = fakeRecord{ID: id, Document: doc, Metadata: meta, Distance: float64(i) / 10}
+			embedding := []float64{}
+			if i < len(payload.Embeddings) {
+				embedding = append([]float64(nil), payload.Embeddings[i]...)
+			}
+			f.records[id] = fakeRecord{ID: id, Document: doc, Metadata: meta, Embedding: embedding, Distance: float64(i) / 10}
 		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]any{"upserted": len(payload.IDs)})
@@ -294,20 +301,49 @@ func (f *fakeChromaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ids := make([]string, 0, len(matches))
 		docs := make([]*string, 0, len(matches))
 		metas := make([]map[string]any, 0, len(matches))
+		embeddings := make([][]float64, 0, len(matches))
 		for i := range matches {
 			rec := matches[i]
 			ids = append(ids, rec.ID)
 			doc := rec.Document
 			docs = append(docs, &doc)
 			metas = append(metas, rec.Metadata)
+			embeddings = append(embeddings, rec.Embedding)
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ids":       ids,
-			"documents": docs,
-			"metadatas": metas,
-			"include":   []string{"documents", "metadatas"},
+			"ids":        ids,
+			"documents":  docs,
+			"metadatas":  metas,
+			"embeddings": embeddings,
+			"include":    []string{"documents", "metadatas", "embeddings"},
 		})
+		return
+	}
+
+	if r.Method == http.MethodPost && r.URL.Path == base+"/collections/"+f.collectionID+"/delete" {
+		var payload struct {
+			Where map[string]any `json:"where"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		f.mu.Lock()
+		nextOrder := make([]string, 0, len(f.order))
+		for _, id := range f.order {
+			rec := f.records[id]
+			if metadataMatchesWhere(rec.Metadata, payload.Where) {
+				delete(f.records, id)
+				continue
+			}
+			nextOrder = append(nextOrder, id)
+		}
+		f.order = nextOrder
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"deleted": true})
 		return
 	}
 
@@ -318,25 +354,51 @@ func (f *fakeChromaBackend) filterRecords(where map[string]any) []fakeRecord {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	var scopeFilter string
-	if where != nil {
-		if scope, ok := where["scope"].(string); ok {
-			scopeFilter = scope
-		}
-	}
-
 	out := make([]fakeRecord, 0, len(f.order))
 	for _, id := range f.order {
 		rec := f.records[id]
-		if scopeFilter != "" {
-			scope, _ := rec.Metadata["scope"].(string)
-			if !strings.EqualFold(scope, scopeFilter) {
-				continue
-			}
+		if !metadataMatchesWhere(rec.Metadata, where) {
+			continue
 		}
 		out = append(out, rec)
 	}
 	return out
+}
+
+func metadataMatchesWhere(metadata map[string]any, where map[string]any) bool {
+	if len(where) == 0 {
+		return true
+	}
+	for key, want := range where {
+		if key == "$and" {
+			switch clauses := want.(type) {
+			case []any:
+				for _, clause := range clauses {
+					clauseMap, ok := clause.(map[string]any)
+					if !ok || !metadataMatchesWhere(metadata, clauseMap) {
+						return false
+					}
+				}
+			case []map[string]any:
+				for _, clause := range clauses {
+					if !metadataMatchesWhere(metadata, clause) {
+						return false
+					}
+				}
+			default:
+				return false
+			}
+			continue
+		}
+		got, ok := metadata[key]
+		if !ok {
+			return false
+		}
+		if !strings.EqualFold(fmt.Sprint(got), fmt.Sprint(want)) {
+			return false
+		}
+	}
+	return true
 }
 
 func contains(values []string, needle string) bool {
