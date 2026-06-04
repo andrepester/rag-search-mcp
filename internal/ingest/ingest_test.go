@@ -120,6 +120,12 @@ func TestReindexBuildsNewGenerationsAndReusesUnchangedSources(t *testing.T) {
 	if second.Generation == first.Generation {
 		t.Fatal("expected a new generation for the second reindex")
 	}
+	if got := chromaBackend.countGeneration(first.Generation); got == 0 {
+		t.Fatalf("first generation records were deleted after second reindex, got %d", got)
+	}
+	if got := chromaBackend.countGeneration(second.Generation); got == 0 {
+		t.Fatalf("second generation records were not written, got %d", got)
+	}
 
 	if err := os.WriteFile(guidePath, []byte("changed guide text"), 0o644); err != nil {
 		t.Fatalf("modify guide: %v", err)
@@ -329,6 +335,19 @@ func (b *ingestChromaBackend) filter(where map[string]any) []ingestRecord {
 		}
 	}
 	return out
+}
+
+func (b *ingestChromaBackend) countGeneration(generation string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	count := 0
+	for _, record := range b.records {
+		if fmt.Sprint(record.Metadata["index_generation"]) == generation {
+			count++
+		}
+	}
+	return count
 }
 
 func ingestMetadataMatches(metadata map[string]any, where map[string]any) bool {

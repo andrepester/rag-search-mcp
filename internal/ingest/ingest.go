@@ -161,10 +161,6 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 	}
 	switched = true
 
-	if activeGeneration != "" && activeGeneration != buildGeneration {
-		_ = s.Chroma.DeleteWhere(ctx, collectionID, map[string]any{"index_generation": activeGeneration})
-	}
-
 	return stats, nil
 }
 
