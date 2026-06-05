@@ -118,6 +118,7 @@ With the default MCP alias `rag-search-mcp`, OpenCode can use:
 - `rag_get_chunk`: fetch one chunk by `chunk_id`
 - `rag_list_sources`: list indexed source paths
 - `rag_reindex`: rebuild the index from mounted sources
+- `rag_reindex_status`: inspect the current and last reindex job status
 
 Scope behavior:
 
@@ -145,6 +146,7 @@ Scope behavior:
 | `make down` | Stop the runtime stack without removing containers |
 | `make test` | Run Go tests through the Dockerfile `go-runner` stage |
 | `make reindex` | Rebuild the semantic index in the running `rag-mcp` container |
+| `make reindex-status` | Print current and last reindex job status from the running `rag-mcp` container |
 | `make logs` | Stream runtime logs |
 | `make doctor` | Validate configuration, run runtime diagnostics, reindex, verify index data, and check health |
 
@@ -167,6 +169,25 @@ If reindexing fails before that switch, the previous query state remains active.
 Deleted sources are no longer returned after a successful switch because queries
 filter by the new active generation. Old generations are cleanup state; query
 correctness depends on the active pointer, not on immediate cleanup.
+
+Reindexing also uses a single-writer process lock under the same host-persistent
+state directory as the active pointer. CLI reindex runs and MCP-triggered
+reindex runs both acquire the non-blocking lock before writing build-generation
+records. A second start is rejected instead of queued or used to restart the
+running job. CLI duplicate starts exit with code `2`; MCP duplicate starts
+return `ok=false`, `status=blocked`, and `error=already_running`.
+
+Inspect reindex status with:
+
+```bash
+make reindex-status
+```
+
+The status JSON includes the current `active_job` when a run is active, the
+terminal `last_run` record, and the `last_blocked_start` record for the most
+recent rejected duplicate start. If a process exits without writing a terminal
+status, the next status check marks the stale active job as failed once the
+process lock is no longer held.
 
 Lifecycle examples:
 
@@ -194,14 +215,15 @@ Runtime logs are JSON by default and use stable event names:
 | `tool_error` | MCP tool failed or returned an application-level error |
 | `reindex_start` | Reindex started from CLI or MCP |
 | `reindex_complete` | Reindex finished with file and chunk counts |
-| `reindex_error` | CLI reindex failed |
+| `reindex_error` | Reindex failed |
+| `reindex_blocked` | Reindex start was rejected because another reindex is running |
 | `dependency_unhealthy` | `/readyz` found an unhealthy dependency |
 
 Common log fields include `component`, `event`, `tool`, `scope`, `top_k`,
 `matches`, `sources`, `files`, `docs_files`, `code_files`, `chunks`,
 `duration_ms`, `dependency`, `hint`, `generation`, `changed_files`,
-`deleted_files`, `reused_files`, `embedded_chunks`, and `reused_chunks`. CLI
-`reindex_start` logs also include
+`deleted_files`, `reused_files`, `embedded_chunks`, `reused_chunks`, `job_id`,
+`status`, and `active_job_id`. CLI `reindex_start` logs also include
 the configured `docs_dir` and `code_dir` source roots so operators can identify
 which source configuration a run used. Logs intentionally do not include request
 bodies, query text, chunk text, embeddings, or result snippets.
@@ -408,6 +430,18 @@ The current reindex implementation keeps one global Chroma collection and
 switches an active generation pointer instead of rotating collections. Existing
 indexes created before this generation metadata existed require one fresh
 `make reindex`. See `docs/architecture/RAG-SEARCH-MCP-ADR-2026-06-04-atomic-generation-switch.md`.
+
+### `make reindex` reports that another reindex is running
+
+Only one reindex writer is allowed at a time. Check the active job:
+
+```bash
+make reindex-status
+```
+
+If `active_job` is present, wait for that job to finish. The rejected start is
+recorded as `last_blocked_start`. Do not delete lock files manually while a
+legitimate reindex process is still running.
 
 ### `make doctor` or `make reindex` says the stack is not running
 

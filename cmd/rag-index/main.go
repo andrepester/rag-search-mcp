@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +16,7 @@ import (
 	"github.com/andrepester/rag-search-mcp/internal/ingest"
 	"github.com/andrepester/rag-search-mcp/internal/observability"
 	"github.com/andrepester/rag-search-mcp/internal/ollama"
+	"github.com/andrepester/rag-search-mcp/internal/reindexjob"
 	"github.com/andrepester/rag-search-mcp/internal/store"
 )
 
@@ -21,6 +24,7 @@ const (
 	reindexInitTimeout    = 45 * time.Second
 	reindexInitMinBackoff = 250 * time.Millisecond
 	reindexInitMaxBackoff = 3 * time.Second
+	exitReindexBusy       = 2
 )
 
 type indexer interface {
@@ -36,14 +40,53 @@ var (
 
 func main() {
 	logger := observability.NewFallbackLogger(os.Stdout, os.Getenv("RAG_LOG_LEVEL"), os.Getenv("RAG_LOG_FORMAT"))
-	if err := run(context.Background(), logger); err != nil {
-		logReindexError(context.Background(), componentLogger(logger, "rag-index"), err)
+	if err := runCommand(context.Background(), logger, os.Args[1:], os.Stdout); err != nil {
+		logger := componentLogger(logger, "rag-index")
+		if reindexjob.IsBusy(err) {
+			logReindexBlocked(context.Background(), logger, err)
+			os.Exit(exitReindexBusy)
+		}
+		logReindexError(context.Background(), logger, err)
 		os.Exit(1)
 	}
 
 }
 
 func run(ctx context.Context, logger *slog.Logger) error {
+	return runReindex(ctx, logger)
+}
+
+func runCommand(ctx context.Context, logger *slog.Logger, args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("rag-index", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	showStatus := flags.Bool("status", false, "print reindex job status as JSON")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() > 0 {
+		return fmt.Errorf("unexpected argument: %s", flags.Arg(0))
+	}
+	if *showStatus {
+		return writeReindexStatus(ctx, stdout)
+	}
+	return runReindex(ctx, logger)
+}
+
+func writeReindexStatus(ctx context.Context, stdout io.Writer) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+	status, err := reindexjob.New(cfg.IndexStateDir).Status(ctx)
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(status)
+}
+
+func runReindex(ctx context.Context, logger *slog.Logger) error {
 	logger = componentLogger(logger, "rag-index")
 
 	cfg, err := loadConfig()
@@ -58,10 +101,16 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	retryCtx, cancel := context.WithTimeout(ctx, reindexInitTimeout)
 	defer cancel()
 
+	run, err := reindexjob.New(cfg.IndexStateDir).Start(ctx, reindexjob.TriggerCLI)
+	if err != nil {
+		return err
+	}
+
 	start := time.Now()
 	logger.InfoContext(ctx, "reindex started",
 		slog.String("event", "reindex_start"),
 		slog.String("trigger", "cli"),
+		slog.String("job_id", run.Job.ID),
 		slog.String("docs_dir", cfg.DocsDir),
 		slog.String("code_dir", cfg.CodeDir),
 		slog.Bool("code_ingest", cfg.EnableCodeIngest),
@@ -69,6 +118,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	)
 
 	stats, err := reindexWithRetry(retryCtx, ingestSvc)
+	if finishErr := run.Finish(ctx, stats, err); finishErr != nil {
+		if err != nil {
+			return errors.Join(err, finishErr)
+		}
+		return finishErr
+	}
 	if err != nil {
 		return err
 	}
@@ -86,6 +141,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		slog.Int("embedded_chunks", stats.EmbeddedChunks),
 		slog.Int("reused_chunks", stats.ReusedChunks),
 		slog.String("generation", stats.Generation),
+		slog.String("job_id", run.Job.ID),
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 	)
 	return nil
@@ -151,4 +207,24 @@ func logReindexError(ctx context.Context, logger *slog.Logger, err error) {
 		)
 	}
 	logger.LogAttrs(ctx, slog.LevelError, "reindex failed", attrs...)
+}
+
+func logReindexBlocked(ctx context.Context, logger *slog.Logger, err error) {
+	attrs := []slog.Attr{
+		slog.String("event", "reindex_blocked"),
+		slog.String("error", err.Error()),
+	}
+	if busy, ok := reindexjob.Busy(err); ok {
+		attrs = append(attrs,
+			slog.String("trigger", busy.BlockedStart.Trigger),
+			slog.String("status", busy.BlockedStart.Status),
+		)
+		if busy.BlockedStart.ActiveJob != nil {
+			attrs = append(attrs,
+				slog.String("active_job_id", busy.BlockedStart.ActiveJob.ID),
+				slog.String("active_trigger", busy.BlockedStart.ActiveJob.Trigger),
+			)
+		}
+	}
+	logger.LogAttrs(ctx, slog.LevelWarn, "reindex already running", attrs...)
 }

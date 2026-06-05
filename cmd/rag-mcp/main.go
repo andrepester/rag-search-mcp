@@ -19,6 +19,7 @@ import (
 	"github.com/andrepester/rag-search-mcp/internal/observability"
 	"github.com/andrepester/rag-search-mcp/internal/ollama"
 	"github.com/andrepester/rag-search-mcp/internal/rag"
+	"github.com/andrepester/rag-search-mcp/internal/reindexjob"
 	"github.com/andrepester/rag-search-mcp/internal/store"
 )
 
@@ -51,7 +52,8 @@ type ragService interface {
 	Search(ctx context.Context, query string, topK int, scope string, sourceFilter string) (rag.SearchResponse, error)
 	GetChunk(ctx context.Context, chunkID string) rag.ChunkResponse
 	ListSources(ctx context.Context, scope string) (rag.ListSourcesResponse, error)
-	Reindex(ctx context.Context) (ingest.Stats, error)
+	RunReindex(ctx context.Context, trigger string, onStart func(reindexjob.Job)) (ingest.Stats, error)
+	ReindexStatus(ctx context.Context) (reindexjob.Status, error)
 	CheckReadiness(ctx context.Context) observability.ReadinessReport
 }
 
@@ -225,12 +227,30 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 		Description: "Rebuild the index from docs and code sources",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ *struct{}) (*mcp.CallToolResult, any, error) {
 		start := time.Now()
-		logger.InfoContext(ctx, "reindex started",
-			slog.String("event", "reindex_start"),
-			slog.String("trigger", "mcp_tool"),
-		)
-		stats, err := ragSvc.Reindex(ctx)
+		var jobID string
+		stats, err := ragSvc.RunReindex(ctx, reindexjob.TriggerMCPTool, func(job reindexjob.Job) {
+			jobID = job.ID
+			logger.InfoContext(ctx, "reindex started",
+				slog.String("event", "reindex_start"),
+				slog.String("trigger", "mcp_tool"),
+				slog.String("job_id", job.ID),
+			)
+		})
 		if err != nil {
+			if busy, ok := reindexjob.Busy(err); ok {
+				logReindexBlocked(ctx, logger, busy)
+				metrics.RecordToolCall("reindex", false)
+				metrics.RecordReindex("mcp_tool", false)
+				return nil, map[string]any{
+					"ok":                  false,
+					"status":              busy.BlockedStart.Status,
+					"error":               busy.BlockedStart.Error,
+					"active_job":          busy.BlockedStart.ActiveJob,
+					"last_blocked_start":  busy.BlockedStart,
+					"status_record_error": busy.RecordError,
+					"duration_ms":         durationMillis(start),
+				}, nil
+			}
 			logToolError(ctx, logger, "reindex", start, err)
 			metrics.RecordToolCall("reindex", false)
 			metrics.RecordReindex("mcp_tool", false)
@@ -251,6 +271,7 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 			slog.Int("embedded_chunks", stats.EmbeddedChunks),
 			slog.Int("reused_chunks", stats.ReusedChunks),
 			slog.String("generation", stats.Generation),
+			slog.String("job_id", jobID),
 			slog.Int64("duration_ms", durationMillis(start)),
 		)
 		return nil, map[string]any{
@@ -265,7 +286,29 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 			"embedded_chunks": stats.EmbeddedChunks,
 			"reused_chunks":   stats.ReusedChunks,
 			"generation":      stats.Generation,
+			"job_id":          jobID,
 		}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "reindex_status",
+		Description: "Return the current and last reindex job status",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ *struct{}) (*mcp.CallToolResult, any, error) {
+		start := time.Now()
+		status, err := ragSvc.ReindexStatus(ctx)
+		if err != nil {
+			logToolError(ctx, logger, "reindex_status", start, err)
+			metrics.RecordToolCall("reindex_status", false)
+			return nil, nil, err
+		}
+		metrics.RecordToolCall("reindex_status", true)
+		logger.InfoContext(ctx, "tool call complete",
+			slog.String("event", "tool_call"),
+			slog.String("tool", "reindex_status"),
+			slog.String("status", status.Status),
+			slog.Int64("duration_ms", durationMillis(start)),
+		)
+		return nil, status, nil
 	})
 
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
@@ -374,6 +417,23 @@ func logToolError(ctx context.Context, logger *slog.Logger, tool string, start t
 	}
 	all = append(all, attrs...)
 	logger.LogAttrs(ctx, slog.LevelError, "tool call failed", all...)
+}
+
+func logReindexBlocked(ctx context.Context, logger *slog.Logger, busy *reindexjob.BusyError) {
+	attrs := []slog.Attr{
+		slog.String("event", "reindex_blocked"),
+		slog.String("tool", "reindex"),
+		slog.String("trigger", busy.BlockedStart.Trigger),
+		slog.String("status", busy.BlockedStart.Status),
+		slog.String("error", busy.Error()),
+	}
+	if busy.BlockedStart.ActiveJob != nil {
+		attrs = append(attrs,
+			slog.String("active_job_id", busy.BlockedStart.ActiveJob.ID),
+			slog.String("active_trigger", busy.BlockedStart.ActiveJob.Trigger),
+		)
+	}
+	logger.LogAttrs(ctx, slog.LevelWarn, "reindex already running", attrs...)
 }
 
 func dependencyForToolError(tool string, err error) string {

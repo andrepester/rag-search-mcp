@@ -13,6 +13,7 @@ import (
 	"github.com/andrepester/rag-search-mcp/internal/ingest"
 	"github.com/andrepester/rag-search-mcp/internal/observability"
 	"github.com/andrepester/rag-search-mcp/internal/ollama"
+	"github.com/andrepester/rag-search-mcp/internal/reindexjob"
 	"github.com/andrepester/rag-search-mcp/internal/store"
 )
 
@@ -110,16 +111,37 @@ func ensureWithRetry(ctx context.Context, ensure func(context.Context) (string, 
 }
 
 func (s *Service) Reindex(ctx context.Context) (ingest.Stats, error) {
-	stats, err := s.Ingest.Reindex(ctx)
+	return s.RunReindex(ctx, reindexjob.TriggerMCPTool, nil)
+}
+
+func (s *Service) RunReindex(ctx context.Context, trigger string, onStart func(reindexjob.Job)) (ingest.Stats, error) {
+	run, err := reindexjob.New(s.Config.IndexStateDir).Start(ctx, trigger)
 	if err != nil {
 		return ingest.Stats{}, err
 	}
-	collectionID, err := s.Chroma.EnsureCollection(ctx, s.Config.CollectionName)
-	if err != nil {
-		return stats, err
+	if onStart != nil {
+		onStart(run.Job)
 	}
-	s.setCollectionID(collectionID)
-	return stats, nil
+
+	stats, err := s.Ingest.Reindex(ctx)
+	if err == nil {
+		var collectionID string
+		collectionID, err = s.Chroma.EnsureCollection(ctx, s.Config.CollectionName)
+		if err == nil {
+			s.setCollectionID(collectionID)
+		}
+	}
+	if finishErr := run.Finish(ctx, stats, err); finishErr != nil {
+		if err != nil {
+			return stats, errors.Join(err, finishErr)
+		}
+		return stats, finishErr
+	}
+	return stats, err
+}
+
+func (s *Service) ReindexStatus(ctx context.Context) (reindexjob.Status, error) {
+	return reindexjob.New(s.Config.IndexStateDir).Status(ctx)
 }
 
 func (s *Service) Search(ctx context.Context, query string, topK int, scope string, sourceFilter string) (SearchResponse, error) {
