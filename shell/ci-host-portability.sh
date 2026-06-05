@@ -101,6 +101,31 @@ $(list_host_script_files)
 EOF
 }
 
+check_shell_language_hazards() {
+	while IFS= read -r file; do
+		[ -f "$file" ] || continue
+		awk -v file="$file" '
+function report(message) {
+	printf "%s:%d: %s\n", file, FNR, message
+}
+/^[[:space:]]*#/ {
+	next
+}
+{
+	line = $0
+	if (line ~ /(^|[[:space:];|&])\[\[[[:space:]]/) {
+		report("[[ ... ]] is not POSIX sh; use [ ... ] or case")
+	}
+	if (line ~ /(^|[[:space:];|&])local([[:space:]]|$)/) {
+		report("local is not POSIX sh; use regular variables or a subshell")
+	}
+}
+' "$file" >> "$violations_file"
+	done <<EOF
+$(list_host_script_files)
+EOF
+}
+
 check_known_host_portability_hazards() {
 	while IFS= read -r file; do
 		[ -f "$file" ] || continue
@@ -145,6 +170,7 @@ check_gitattributes_policy
 check_crlf_line_endings
 check_shell_syntax
 check_shell_entrypoints
+check_shell_language_hazards
 check_known_host_portability_hazards
 
 if [ -s "$violations_file" ]; then
