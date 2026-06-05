@@ -16,6 +16,7 @@ import (
 	"github.com/andrepester/rag-search-mcp/internal/ingest"
 	"github.com/andrepester/rag-search-mcp/internal/observability"
 	"github.com/andrepester/rag-search-mcp/internal/rag"
+	"github.com/andrepester/rag-search-mcp/internal/reindexjob"
 )
 
 type fakeRAGService struct{}
@@ -32,8 +33,12 @@ func (fakeRAGService) ListSources(context.Context, string) (rag.ListSourcesRespo
 	return rag.ListSourcesResponse{}, nil
 }
 
-func (fakeRAGService) Reindex(context.Context) (ingest.Stats, error) {
+func (fakeRAGService) RunReindex(context.Context, string, func(reindexjob.Job)) (ingest.Stats, error) {
 	return ingest.Stats{}, nil
+}
+
+func (fakeRAGService) ReindexStatus(context.Context) (reindexjob.Status, error) {
+	return reindexjob.Status{Status: reindexjob.StatusIdle}, nil
 }
 
 func (fakeRAGService) CheckReadiness(context.Context) observability.ReadinessReport {

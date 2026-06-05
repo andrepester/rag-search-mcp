@@ -15,7 +15,7 @@ help:
 	@printf '  %-25s %s\n' 'make up' 'Start runtime stack in detached mode'
 	@printf '  %-25s %s\n' 'make down' 'Stop runtime stack (without removing containers)'
 	@printf '  %-25s %s\n' 'make test' 'Run Go tests via Dockerfile go-runner stage'
-	@printf '  %-25s %s\n' 'make reindex' 'Rebuild index in the running rag-mcp container'
+	@printf '  %-25s %s\n' 'make reindex' 'Rebuild index in the running rag-mcp container with progress'
 	@printf '  %-25s %s\n' 'make logs' 'Tail runtime stack logs'
 	@printf '  %-25s %s\n' 'make doctor' 'Validate config and run runtime diagnostics'
 

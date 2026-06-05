@@ -15,6 +15,7 @@ import (
 	"github.com/andrepester/rag-search-mcp/internal/config"
 	"github.com/andrepester/rag-search-mcp/internal/ingest"
 	"github.com/andrepester/rag-search-mcp/internal/ollama"
+	"github.com/andrepester/rag-search-mcp/internal/reindexjob"
 	"github.com/andrepester/rag-search-mcp/internal/store"
 )
 
@@ -61,6 +62,7 @@ func TestRunSuccess(t *testing.T) {
 			ChromaURL:      "http://127.0.0.1:8000",
 			ChromaTenant:   "default_tenant",
 			ChromaDatabase: "default_database",
+			IndexStateDir:  t.TempDir(),
 		}, nil
 	}
 
@@ -92,6 +94,84 @@ func TestRunSuccess(t *testing.T) {
 	}
 	if completion["chunks"] != float64(3) {
 		t.Fatalf("chunks = %v, want 3", completion["chunks"])
+	}
+	if completion["job_id"] == "" {
+		t.Fatalf("missing job_id in completion log: %+v", completion)
+	}
+}
+
+func TestRunBusyDoesNotRetry(t *testing.T) {
+	originalLoadConfig := loadConfig
+	originalNewIndexer := newIndexer
+	t.Cleanup(func() {
+		loadConfig = originalLoadConfig
+		newIndexer = originalNewIndexer
+	})
+
+	indexStateDir := t.TempDir()
+	loadConfig = func() (config.Config, error) {
+		return config.Config{
+			OllamaHost:     "http://127.0.0.1:11434",
+			ChromaURL:      "http://127.0.0.1:8000",
+			ChromaTenant:   "default_tenant",
+			ChromaDatabase: "default_database",
+			IndexStateDir:  indexStateDir,
+		}, nil
+	}
+
+	held, err := reindexjob.New(indexStateDir).Start(context.Background(), reindexjob.TriggerCLI)
+	if err != nil {
+		t.Fatalf("holding reindex lock failed: %v", err)
+	}
+	defer func() {
+		_ = held.Finish(context.Background(), ingest.Stats{}, nil)
+	}()
+
+	var attempts atomic.Int32
+	newIndexer = func(*config.Config, *ollama.Client, *store.ChromaClient) indexer {
+		return fakeIndexer{reindex: func(context.Context) (ingest.Stats, error) {
+			attempts.Add(1)
+			return ingest.Stats{}, nil
+		}}
+	}
+
+	err = run(context.Background(), discardLogger())
+	if !reindexjob.IsBusy(err) {
+		t.Fatalf("run() error = %T %v, want busy", err, err)
+	}
+	if attempts.Load() != 0 {
+		t.Fatalf("reindex attempts = %d, want 0", attempts.Load())
+	}
+}
+
+func TestRunCommandStatusOutputsJSON(t *testing.T) {
+	originalLoadConfig := loadConfig
+	t.Cleanup(func() {
+		loadConfig = originalLoadConfig
+	})
+
+	indexStateDir := t.TempDir()
+	loadConfig = func() (config.Config, error) {
+		return config.Config{IndexStateDir: indexStateDir}, nil
+	}
+	run, err := reindexjob.New(indexStateDir).Start(context.Background(), reindexjob.TriggerCLI)
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	if err := run.Finish(context.Background(), ingest.Stats{Generation: "gen-status"}, nil); err != nil {
+		t.Fatalf("Finish() failed: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := runCommand(context.Background(), discardLogger(), []string{"--status"}, &out); err != nil {
+		t.Fatalf("runCommand(--status) failed: %v", err)
+	}
+	var status reindexjob.Status
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("unmarshal status: %v\n%s", err, out.String())
+	}
+	if status.Status != reindexjob.StatusSucceeded || status.LastRun == nil || status.LastRun.Generation != "gen-status" {
+		t.Fatalf("status = %+v", status)
 	}
 }
 
