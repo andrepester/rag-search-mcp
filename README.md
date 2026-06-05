@@ -145,8 +145,7 @@ Scope behavior:
 | `make up` | Start the runtime stack in detached mode |
 | `make down` | Stop the runtime stack without removing containers |
 | `make test` | Run Go tests through the Dockerfile `go-runner` stage |
-| `make reindex` | Rebuild the semantic index in the running `rag-mcp` container |
-| `make reindex-status` | Print current and last reindex job status from the running `rag-mcp` container |
+| `make reindex` | Rebuild the semantic index in the running `rag-mcp` container with a progress bar |
 | `make logs` | Stream runtime logs |
 | `make doctor` | Validate configuration, run runtime diagnostics, reindex, verify index data, and check health |
 
@@ -177,17 +176,14 @@ records. A second start is rejected instead of queued or used to restart the
 running job. CLI duplicate starts exit with code `2`; MCP duplicate starts
 return `ok=false`, `status=blocked`, and `error=already_running`.
 
-Inspect reindex status with:
+`make reindex` displays an indeterminate progress bar while the containerized
+indexer is running, then prints the `rag-index` output when the run exits.
 
-```bash
-make reindex-status
-```
-
-The status JSON includes the current `active_job` when a run is active, the
-terminal `last_run` record, and the `last_blocked_start` record for the most
-recent rejected duplicate start. If a process exits without writing a terminal
-status, the next status check marks the stale active job as failed once the
-process lock is no longer held.
+The `rag_reindex_status` tool returns status JSON with the current `active_job`
+when a run is active, the terminal `last_run` record, and the
+`last_blocked_start` record for the most recent rejected duplicate start. If a
+process exits without writing a terminal status, the next status check marks the
+stale active job as failed once the process lock is no longer held.
 
 Lifecycle examples:
 
@@ -433,15 +429,10 @@ indexes created before this generation metadata existed require one fresh
 
 ### `make reindex` reports that another reindex is running
 
-Only one reindex writer is allowed at a time. Check the active job:
-
-```bash
-make reindex-status
-```
-
-If `active_job` is present, wait for that job to finish. The rejected start is
-recorded as `last_blocked_start`. Do not delete lock files manually while a
-legitimate reindex process is still running.
+Only one reindex writer is allowed at a time. Use the `rag_reindex_status` MCP
+tool to inspect the active job. If `active_job` is present, wait for that job to
+finish. The rejected start is recorded as `last_blocked_start`. Do not delete
+lock files manually while a legitimate reindex process is still running.
 
 ### `make doctor` or `make reindex` says the stack is not running
 

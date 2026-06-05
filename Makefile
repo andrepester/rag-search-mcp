@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install clean-install up down test reindex reindex-status logs doctor
+.PHONY: help install clean-install up down test reindex logs doctor
 
 FULL_RESET ?= 0
 COMPOSE_PROJECT_DIR ?= .
@@ -15,8 +15,7 @@ help:
 	@printf '  %-25s %s\n' 'make up' 'Start runtime stack in detached mode'
 	@printf '  %-25s %s\n' 'make down' 'Stop runtime stack (without removing containers)'
 	@printf '  %-25s %s\n' 'make test' 'Run Go tests via Dockerfile go-runner stage'
-	@printf '  %-25s %s\n' 'make reindex' 'Rebuild index in the running rag-mcp container'
-	@printf '  %-25s %s\n' 'make reindex-status' 'Print current and last reindex job status'
+	@printf '  %-25s %s\n' 'make reindex' 'Rebuild index in the running rag-mcp container with progress'
 	@printf '  %-25s %s\n' 'make logs' 'Tail runtime stack logs'
 	@printf '  %-25s %s\n' 'make doctor' 'Validate config and run runtime diagnostics'
 
@@ -37,9 +36,6 @@ clean-install:
 
 reindex:
 	@COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' sh ./shell/reindex.sh
-
-reindex-status:
-	@COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' sh ./shell/reindex-status.sh
 
 logs:
 	$(COMPOSE) logs -f
