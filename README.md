@@ -38,11 +38,17 @@ flowchart TD
 
 ## Requirements
 
-- Docker Engine
-- Docker Compose plugin
-- GNU Make
+- Docker Engine 24+ on Linux, or Docker Desktop on macOS/WSL2
+- Docker Compose plugin 2.20+ or newer
+- GNU Make 3.81+
+- POSIX `/bin/sh`
 
 No local Go installation is required for the normal development workflow.
+
+Supported hosts are macOS with Docker Desktop, Ubuntu LTS/Debian stable with
+Docker Engine, and Windows via WSL2. Native Windows shells are outside the v1
+support matrix. See `docs/host-platform-support.md` for the full platform
+matrix, minimums, guardrails, and smoke plan.
 
 ## Installation
 
@@ -349,6 +355,7 @@ sh ./shell/ci-mod-tidy-check.sh
 CI and maintainer gates are intentionally exposed as shell commands instead of Make targets:
 
 ```bash
+sh ./shell/ci-host-portability.sh
 sh ./shell/ci-govulncheck.sh
 sh ./shell/ci-mod-tidy-check.sh
 sh ./shell/ci-golden-queries.sh
@@ -361,7 +368,7 @@ sh ./shell/ci-container-supply-chain-policy-smoke.sh
 
 GitHub Actions workflows:
 
-- `ci-fast`: `container-only-go`, `fmt`, `mod-tidy`, `vet`, `test`, `golden-queries`, `build`, `bootstrap-smoke`, `compose-validate`, plus non-required `docker-test-stage`
+- `ci-fast`: `host-portability` on Ubuntu/macOS, plus Ubuntu `container-only-go`, `fmt`, `mod-tidy`, `vet`, `test`, `golden-queries`, `build`, `bootstrap-smoke`, `compose-validate`, and non-required `docker-test-stage`
 - `security-baseline`: `gitleaks`, runtime `govulncheck`, and `toolchain-security`
 - `dependency-review`: PR dependency diff review for new high or critical vulnerability findings
 - `integration-ollama`: full runtime startup via `make install` with health smoke checks
@@ -371,6 +378,8 @@ Recommended required checks for branch protection:
 
 Required merge gates and stable check names are documented in `docs/ci-required-checks.md`.
 Container supply-chain policy, base-image pinning, and no-exception vulnerability gate rules are documented in `docs/container-supply-chain-security.md`.
+Host platform support and Docker workflow smoke coverage are documented in
+`docs/host-platform-support.md`.
 
 ### Golden query updates
 
@@ -447,6 +456,19 @@ For a full bootstrap, use:
 ```bash
 make install
 ```
+
+### Docker workflows behave differently on macOS, Linux, or WSL2
+
+First run the host-only portability guard:
+
+```bash
+sh ./shell/ci-host-portability.sh
+```
+
+Then follow the matrix smoke plan in `docs/host-platform-support.md`. Native
+Windows shells, unshared Docker Desktop paths, unsupported Compose versions, and
+alternate container runtimes are best-effort scenarios unless the support matrix
+is expanded.
 
 ### `make doctor` reports configuration findings
 
