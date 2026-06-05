@@ -44,8 +44,13 @@ protection in the same change.
 
 ## Non-Required Checks
 
-`docker-test-stage` is intentionally non-required. It remains useful CI signal,
-but the required `test` and `build` jobs are the stable merge gates for Go code.
+- `docker-test-stage` is intentionally non-required. It remains useful CI
+  signal, but the required `test` and `build` jobs are the stable merge gates
+  for Go code.
+- `host-portability` runs on Ubuntu and macOS as a host-only portability signal
+  for POSIX shell syntax, LF line endings, and BSD/GNU command drift. It is not
+  required until the signal has been observed as stable on pull requests and
+  branch protection is updated in the same change.
 
 ## Red/Green Guard Proof
 
