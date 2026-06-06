@@ -22,6 +22,34 @@ func TestCheckValidDefaultConfig(t *testing.T) {
 	}
 }
 
+func TestHostPathDefaultsStayBoundToKeys(t *testing.T) {
+	expected := []struct {
+		key   string
+		value string
+	}{
+		{key: "HOST_DOCS_DIR", value: "./data/docs"},
+		{key: "HOST_CODE_DIR", value: "./data/code"},
+		{key: "HOST_INDEX_DIR", value: "./data/index"},
+		{key: "HOST_MODELS_DIR", value: "./data/models"},
+	}
+
+	if len(hostPathKeys) != len(expected) {
+		t.Fatalf("hostPathKeys length = %d, want %d (%v)", len(hostPathKeys), len(expected), hostPathKeys)
+	}
+	for i, item := range expected {
+		if hostPathKeys[i] != item.key {
+			t.Fatalf("hostPathKeys[%d] = %q, want %q (%v)", i, hostPathKeys[i], item.key, hostPathKeys)
+		}
+		got, ok := defaults[item.key]
+		if !ok {
+			t.Fatalf("defaults missing %s", item.key)
+		}
+		if got != item.value {
+			t.Fatalf("defaults[%s] = %q, want %q", item.key, got, item.value)
+		}
+	}
+}
+
 func TestCheckReportsFatalRuntimeAndPathErrors(t *testing.T) {
 	repoRoot := newConfigDoctorRepo(t)
 	writeFile(t, filepath.Join(repoRoot, ".env"), 0o600, strings.Join([]string{

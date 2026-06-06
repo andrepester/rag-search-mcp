@@ -192,8 +192,6 @@ assert_host_key_project_surface() {
 	assert_file_contains "docker-compose exposes $key mount default" docker/docker-compose.yml "$(compose_mount_for_key "$key")"
 	assert_file_contains "bootstrap defines $key default" internal/bootstrap/bootstrap.go "$(bootstrap_default_const_for_key "$key")"
 	assert_file_contains "bootstrap defines $key env key" internal/bootstrap/bootstrap.go "$(bootstrap_key_const_for_key "$key")"
-	assert_file_contains "configdoctor default map defines $key" internal/configdoctor/configdoctor.go "\"$key\":"
-	assert_file_contains "configdoctor default map includes $key default" internal/configdoctor/configdoctor.go "\"$default_value\""
 	assert_file_contains "configdoctor hostPathKeys includes $key" internal/configdoctor/configdoctor.go "\"$key\","
 }
 
