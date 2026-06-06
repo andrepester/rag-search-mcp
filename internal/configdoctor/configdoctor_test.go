@@ -104,9 +104,9 @@ func TestCheckReportsInvalidDotEnvSyntax(t *testing.T) {
 	}
 }
 
-func TestCheckReportsInvalidOpenCodeJSON(t *testing.T) {
+func TestCheckIgnoresUserManagedClientConfig(t *testing.T) {
 	repoRoot := newConfigDoctorRepo(t)
-	writeFile(t, filepath.Join(repoRoot, "opencode.json"), 0o600, "{invalid")
+	writeFile(t, filepath.Join(repoRoot, "opencode.json"), 0o644, "{user managed")
 
 	report, err := CheckWithOptions(Options{
 		RepoRoot: repoRoot,
@@ -115,66 +115,10 @@ func TestCheckReportsInvalidOpenCodeJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckWithOptions() failed: %v", err)
 	}
-	if !hasFinding(report, SeverityError, "OPENCODE_JSON") {
-		t.Fatalf("missing OPENCODE_JSON in %#v", report.Findings)
-	}
-}
-
-func TestCheckOpenCodePortMismatchIsWarningOnly(t *testing.T) {
-	repoRoot := newConfigDoctorRepo(t)
-	writeFile(t, filepath.Join(repoRoot, "opencode.json"), 0o600, `{
-	  "$schema": "https://opencode.ai/config.json",
-	  "mcp": {
-	    "rag-search-mcp": {
-	      "type": "remote",
-	      "url": "http://127.0.0.1:9999/mcp",
-	      "enabled": true,
-	      "timeout": 10000
-	    }
-	  }
-	}`)
-
-	report, err := CheckWithOptions(Options{
-		RepoRoot: repoRoot,
-		Environ:  []string{},
-	})
-	if err != nil {
-		t.Fatalf("CheckWithOptions() failed: %v", err)
-	}
-	if report.HasErrors() {
-		t.Fatalf("expected warning-only report, got %#v", report.Findings)
-	}
-	if !hasFinding(report, SeverityWarning, "OPENCODE_ALIAS_PORT_MISMATCH") {
-		t.Fatalf("missing OPENCODE_ALIAS_PORT_MISMATCH in %#v", report.Findings)
-	}
-}
-
-func TestCheckOpenCodeMissingPortIsMismatchWarning(t *testing.T) {
-	repoRoot := newConfigDoctorRepo(t)
-	writeFile(t, filepath.Join(repoRoot, "opencode.json"), 0o600, `{
-	  "$schema": "https://opencode.ai/config.json",
-	  "mcp": {
-	    "rag-search-mcp": {
-	      "type": "remote",
-	      "url": "http://127.0.0.1/mcp",
-	      "enabled": true,
-	      "timeout": 10000
-	    }
-	  }
-	}`)
-
-	report, err := CheckWithOptions(Options{
-		RepoRoot: repoRoot,
-		Environ:  []string{},
-	})
-	if err != nil {
-		t.Fatalf("CheckWithOptions() failed: %v", err)
-	}
-	if report.HasErrors() {
-		t.Fatalf("expected warning-only report, got %#v", report.Findings)
-	}
-	if !hasFinding(report, SeverityWarning, "OPENCODE_ALIAS_PORT_MISMATCH") {
-		t.Fatalf("missing OPENCODE_ALIAS_PORT_MISMATCH in %#v", report.Findings)
+	for _, finding := range report.Findings {
+		if strings.HasPrefix(finding.Code, "OPENCODE_") {
+			t.Fatalf("client config should be outside doctor scope, got %#v", report.Findings)
+		}
 	}
 }
 
@@ -448,17 +392,6 @@ func writeConfigDoctorRepoFiles(t *testing.T, repoRoot string, dotenv string) {
     ports:
       - "${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"
 `)
-	writeFile(t, filepath.Join(repoRoot, "opencode.json"), 0o600, `{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "rag-search-mcp": {
-      "type": "remote",
-      "url": "http://127.0.0.1:8765/mcp",
-      "enabled": true,
-      "timeout": 10000
-    }
-  }
-}`)
 }
 
 func writeFile(t *testing.T, path string, mode os.FileMode, content string) {

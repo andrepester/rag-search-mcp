@@ -7,7 +7,7 @@ The runtime uses:
 - Go for the MCP service and indexing logic
 - Ollama for embeddings
 - Chroma for vector storage
-- OpenCode remote MCP for client integration
+- Remote MCP over HTTP for client integration
 
 ## Overview
 
@@ -31,7 +31,7 @@ flowchart TD
     D --> E["Chroma collection: rag"]
     B --> H["Active index generation pointer"]
 
-    F["OpenCode"] -->|remote MCP| G["rag-mcp /mcp"]
+    F["MCP client"] -->|remote MCP over HTTP| G["rag-mcp /mcp"]
     G --> H
     G --> E
 ```
@@ -62,10 +62,11 @@ make install
 
 1. Creates `.env` from `.env.example` if needed
 2. Resolves and persists source directory settings
-3. Starts the Docker stack
-4. Pulls the embedding model into Ollama
-5. Rebuilds the semantic index
-6. Verifies the indexed data
+3. Prints the local MCP endpoint for manual client configuration
+4. Starts the Docker stack
+5. Pulls the embedding model into Ollama
+6. Rebuilds the semantic index
+7. Verifies the indexed data
 
 After changing mounted docs or code, rebuild the index with:
 
@@ -118,7 +119,8 @@ The selected docs and code paths are written to `.env` before Docker starts.
 
 ### Exposed MCP tools
 
-With the default MCP alias `rag-search-mcp`, OpenCode can use:
+After the stack is running, configure an MCP client to use the remote HTTP
+endpoint and expose these tools under an alias such as `rag-search-mcp`:
 
 - `rag_search`: semantic search with `scope=all|docs|code`
 - `rag_get_chunk`: fetch one chunk by `chunk_id`
@@ -139,6 +141,40 @@ Scope behavior:
 - `Use rag_search with scope code to find chunking logic.`
 - `Use rag_search with scope all and summarize architecture from docs and code.`
 - `Call rag_list_sources with scope all.`
+
+### MCP client configuration
+
+`make install` does not create or modify client configuration files. Configure
+your MCP client manually with the remote HTTP endpoint published by the Docker
+stack:
+
+```text
+http://127.0.0.1:${RAG_HTTP_PORT}/mcp
+```
+
+With the default port, the endpoint is:
+
+```text
+http://127.0.0.1:8765/mcp
+```
+
+A generic remote-MCP server entry looks like this; adapt field names to the
+configuration format your client expects:
+
+```json
+{
+  "servers": {
+    "rag-search-mcp": {
+      "transport": "http",
+      "url": "http://127.0.0.1:${RAG_HTTP_PORT}/mcp"
+    }
+  }
+}
+```
+
+Client configuration files are user-managed local state. The bootstrap flow
+keeps existing client files untouched and does not install a repository-owned
+client template.
 
 ## Operations
 
@@ -302,32 +338,18 @@ in `shell/lib.sh`, using process environment first, then `.env`, then the
 built-in defaults above. Relative paths are resolved from the repository root
 before Docker bind mounts or `FULL_RESET` safety checks are applied.
 
-### OpenCode configuration
+### Skill template
 
-`opencode.json` uses remote MCP:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "rag-search-mcp": {
-      "type": "remote",
-      "url": "http://127.0.0.1:8765/mcp",
-      "enabled": true,
-      "timeout": 10000
-    }
-  }
-}
-```
-
-The project is intended to be operated through the provided Docker stack and `make` targets.
-
-Local `opencode.json` variants are ignored by Git.
+The repository includes an optional, client-agnostic skill template at
+`docs/skills/rag-search-mcp/SKILL.md`. Use it as a prompt or skill starting
+point when your MCP client supports reusable instructions. The template assumes
+only that the `rag-search-mcp` MCP tools are available; it does not manage client
+configuration files.
 
 ### Configuration diagnostics
 
-The internal config doctor validates `.env`, `opencode.json`, host mount paths, ports,
-runtime tuning values, and localhost-first security defaults. It is exposed through
+The internal config doctor validates `.env`, host mount paths, ports, runtime
+tuning values, and localhost-first security defaults. It is exposed through
 `make doctor` and `make install`, not as a separate public Make target.
 
 Finding severity:
@@ -485,7 +507,7 @@ is expanded.
 ### `make doctor` reports configuration findings
 
 Fix `error` findings first; they stop the doctor run before runtime checks. Review
-`warning` findings such as stale `opencode.json` ports or missing optional paths, then
+`warning` findings such as LAN opt-in or missing optional paths, then
 rerun `make doctor`.
 
 ### `/readyz` reports Chroma or Ollama as unhealthy

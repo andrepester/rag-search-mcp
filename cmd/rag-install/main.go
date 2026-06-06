@@ -49,10 +49,10 @@ func run(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := bootstrap.UpsertOpenCodeConfig(absRoot, port); err != nil {
+	if _, err := fmt.Fprintf(stdout, "MCP endpoint will be available at http://127.0.0.1:%d/mcp after the Docker stack starts\n", port); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(stdout, "updated opencode.json for rag-search-mcp MCP alias at http://127.0.0.1:%d/mcp\n", port); err != nil {
+	if _, err := fmt.Fprintln(stdout, "client configuration files are user-managed; none were created or modified"); err != nil {
 		return err
 	}
 
