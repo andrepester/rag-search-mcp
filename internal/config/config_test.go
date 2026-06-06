@@ -13,6 +13,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("RAG_CHUNK_SIZE", "500")
 	t.Setenv("RAG_CHUNK_OVERLAP", "50")
 	t.Setenv("RAG_ENABLE_CODE_INGEST", "false")
+	t.Setenv("FRESH_INDEX", "true")
 
 	cfg, err := Load()
 	if err != nil {
@@ -27,6 +28,9 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	}
 	if cfg.EnableCodeIngest {
 		t.Fatal("EnableCodeIngest = true, want false")
+	}
+	if !cfg.FreshIndex {
+		t.Fatal("FreshIndex = false, want true")
 	}
 	if !filepath.IsAbs(cfg.DocsDir) || !filepath.IsAbs(cfg.CodeDir) || !filepath.IsAbs(cfg.IndexStateDir) {
 		t.Fatal("expected absolute docs/code/index state paths")
@@ -46,7 +50,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 }
 
 func TestLoadValidation(t *testing.T) {
-	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_ENABLE_CODE_INGEST", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT"} {
+	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT"} {
 		_ = os.Unsetenv(key)
 	}
 
@@ -87,6 +91,12 @@ func TestLoadValidation(t *testing.T) {
 	}
 
 	t.Setenv("RAG_ENABLE_CODE_INGEST", "true")
+	t.Setenv("FRESH_INDEX", "not-bool")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for fresh index bool")
+	}
+
+	t.Setenv("FRESH_INDEX", "false")
 	t.Setenv("RAG_LOG_LEVEL", "invalid")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected validation error for log level")

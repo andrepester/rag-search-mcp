@@ -86,5 +86,9 @@ else
 fi
 
 if [ "$skip_install" -eq 0 ]; then
-	COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/install.sh
+	install_fresh_index=${FRESH_INDEX-0}
+	if [ "$is_full_reset" -eq 1 ]; then
+		install_fresh_index=1
+	fi
+	FRESH_INDEX="$install_fresh_index" COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/install.sh
 fi

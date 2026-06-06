@@ -24,5 +24,5 @@ done
 
 model=${EMBED_MODEL:-nomic-embed-text}
 docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T ollama ollama pull "$model"
-docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T rag-mcp /app/rag-index
+FRESH_INDEX="${FRESH_INDEX-0}" COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/index.sh
 COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/doctor-verify-index.sh

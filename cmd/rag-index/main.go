@@ -114,6 +114,7 @@ func runReindex(ctx context.Context, logger *slog.Logger) error {
 		slog.String("docs_dir", cfg.DocsDir),
 		slog.String("code_dir", cfg.CodeDir),
 		slog.Bool("code_ingest", cfg.EnableCodeIngest),
+		slog.Bool("fresh_index", cfg.FreshIndex),
 		slog.String("collection", cfg.CollectionName),
 	)
 

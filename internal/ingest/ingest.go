@@ -92,7 +92,17 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 	if err != nil {
 		return Stats{}, err
 	}
-	if activeManifest.CollectionName != "" && activeManifest.CollectionName != s.Config.CollectionName {
+
+	if s.Config.FreshIndex {
+		if err := s.Chroma.DeleteCollection(ctx, collectionID); err != nil && !store.IsNotFound(err) {
+			return Stats{}, fmt.Errorf("reset collection for fresh index: %w", err)
+		}
+		collectionID, err = s.Chroma.EnsureCollection(ctx, s.Config.CollectionName)
+		if err != nil {
+			return Stats{}, fmt.Errorf("ensure collection after fresh reset: %w", err)
+		}
+		activeManifest = indexstate.Manifest{Sources: map[string]indexstate.SourceManifest{}}
+	} else if activeManifest.CollectionName != "" && activeManifest.CollectionName != s.Config.CollectionName {
 		activeManifest = indexstate.Manifest{Sources: map[string]indexstate.SourceManifest{}}
 	}
 

@@ -25,6 +25,7 @@ type Config struct {
 	DefaultScope     string
 	MaxTopK          int
 	EnableCodeIngest bool
+	FreshIndex       bool
 	LogLevel         string
 	LogFormat        string
 }
@@ -62,6 +63,10 @@ func Load() (Config, error) {
 	}
 
 	enableCodeIngest, err := envBool("RAG_ENABLE_CODE_INGEST", true)
+	if err != nil {
+		return Config{}, err
+	}
+	freshIndex, err := envBool("FRESH_INDEX", false)
 	if err != nil {
 		return Config{}, err
 	}
@@ -114,6 +119,7 @@ func Load() (Config, error) {
 		DefaultScope:     defaultScope,
 		MaxTopK:          maxTopK,
 		EnableCodeIngest: enableCodeIngest,
+		FreshIndex:       freshIndex,
 		LogLevel:         logLevel,
 		LogFormat:        logFormat,
 	}
