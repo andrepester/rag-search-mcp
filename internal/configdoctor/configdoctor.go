@@ -2,7 +2,6 @@ package configdoctor
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -147,7 +146,6 @@ func CheckWithOptions(opts Options) (Report, error) {
 	c.checkRuntimeValues()
 	c.checkHostPaths()
 	c.checkComposeSecurity()
-	c.checkOpenCode()
 
 	return c.report, nil
 }
@@ -367,82 +365,6 @@ func (c *checker) checkComposeSecurity() {
 	}
 	if !strings.Contains(content, `"127.0.0.1:${OLLAMA_PORT:-11434}:11434"`) {
 		c.add(SeverityWarning, "COMPOSE_OLLAMA_LOOPBACK_DEFAULT", "docker-compose.yml no longer contains the expected loopback publish default for Ollama.", "Verify that Ollama is still localhost-only by default.")
-	}
-}
-
-func (c *checker) checkOpenCode() {
-	path := filepath.Join(c.repoRoot, "opencode.json")
-	info, err := os.Stat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			c.add(SeverityWarning, "OPENCODE_MISSING", "opencode.json is missing.", "Run make install to generate the default remote MCP client configuration.")
-			return
-		}
-		c.add(SeverityError, "OPENCODE_STAT", fmt.Sprintf("cannot stat opencode.json: %v.", err), "Fix file permissions or regenerate opencode.json with make install.")
-		return
-	}
-	if info.IsDir() {
-		c.add(SeverityError, "OPENCODE_IS_DIRECTORY", "opencode.json is a directory.", "Replace opencode.json with a JSON configuration file.")
-		return
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		c.add(SeverityWarning, "OPENCODE_PERMISSIONS", "opencode.json is readable by group or others.", "Run chmod 600 opencode.json to keep local client configuration private.")
-	}
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		c.add(SeverityError, "OPENCODE_READ", fmt.Sprintf("cannot read opencode.json: %v.", err), "Fix file permissions or regenerate opencode.json with make install.")
-		return
-	}
-	var cfg map[string]any
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		c.add(SeverityError, "OPENCODE_JSON", fmt.Sprintf("opencode.json is not valid JSON: %v.", err), "Fix the JSON syntax or run make install to back up and regenerate the file.")
-		return
-	}
-	mcp, ok := cfg["mcp"].(map[string]any)
-	if !ok {
-		c.add(SeverityWarning, "OPENCODE_MCP_MISSING", "opencode.json has no mcp object.", "Run make install to add the rag-search-mcp remote MCP alias.")
-		return
-	}
-	service, ok := mcp["rag-search-mcp"].(map[string]any)
-	if !ok {
-		c.add(SeverityWarning, "OPENCODE_ALIAS_MISSING", "opencode.json has no mcp.rag-search-mcp alias.", "Run make install to add the rag-search-mcp remote MCP alias.")
-		return
-	}
-
-	if typ, ok := service["type"].(string); !ok || typ != "remote" {
-		c.add(SeverityWarning, "OPENCODE_ALIAS_TYPE", "mcp.rag-search-mcp is not configured as a remote MCP server.", "Set mcp.rag-search-mcp.type to remote or run make install.")
-	}
-	if enabled, ok := service["enabled"].(bool); ok && !enabled {
-		c.add(SeverityWarning, "OPENCODE_ALIAS_DISABLED", "mcp.rag-search-mcp is disabled.", "Set mcp.rag-search-mcp.enabled to true or run make install.")
-	}
-	rawURL, ok := service["url"].(string)
-	if !ok || strings.TrimSpace(rawURL) == "" {
-		c.add(SeverityWarning, "OPENCODE_ALIAS_URL_MISSING", "mcp.rag-search-mcp.url is missing.", "Set the URL to http://127.0.0.1:${RAG_HTTP_PORT}/mcp or run make install.")
-		return
-	}
-	parsed, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		c.add(SeverityWarning, "OPENCODE_ALIAS_URL_INVALID", fmt.Sprintf("mcp.rag-search-mcp.url is invalid: %q.", rawURL), "Set the URL to http://127.0.0.1:${RAG_HTTP_PORT}/mcp or run make install.")
-		return
-	}
-	if parsed.Scheme != "http" {
-		c.add(SeverityWarning, "OPENCODE_ALIAS_URL_SCHEME", fmt.Sprintf("mcp.rag-search-mcp.url uses scheme %q.", parsed.Scheme), "Use http for the local Docker-first MCP endpoint unless a separate client setup documents otherwise.")
-	}
-	if parsed.Path != "/mcp" {
-		c.add(SeverityWarning, "OPENCODE_ALIAS_URL_PATH", fmt.Sprintf("mcp.rag-search-mcp.url path is %q.", parsed.Path), "Use the /mcp endpoint path.")
-	}
-	host := parsed.Hostname()
-	if !isLoopbackHost(host) {
-		c.add(SeverityWarning, "OPENCODE_ALIAS_NON_LOOPBACK", fmt.Sprintf("mcp.rag-search-mcp.url points to non-loopback host %q.", host), "Default client configuration should use 127.0.0.1. LAN-only client URLs require explicit operational documentation.")
-	}
-	expectedPort := c.effective("RAG_HTTP_PORT").value
-	actualPort := parsed.Port()
-	if actualPort == "" {
-		actualPort = defaultPortForScheme(parsed.Scheme)
-	}
-	if actualPort != "" && expectedPort != "" && actualPort != expectedPort {
-		c.add(SeverityWarning, "OPENCODE_ALIAS_PORT_MISMATCH", fmt.Sprintf("mcp.rag-search-mcp.url uses port %s, but RAG_HTTP_PORT resolves to %s.", actualPort, expectedPort), "Run make install to refresh opencode.json or update the client URL manually.")
 	}
 }
 
@@ -710,17 +632,6 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(normalized)
 	return ip != nil && ip.IsLoopback()
-}
-
-func defaultPortForScheme(scheme string) string {
-	switch scheme {
-	case "http":
-		return "80"
-	case "https":
-		return "443"
-	default:
-		return ""
-	}
 }
 
 func uniqueNonEmpty(values []string) []string {

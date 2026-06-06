@@ -7,7 +7,6 @@ absolute_root=''
 clean_install_tmp=''
 had_env=0
 had_config=0
-had_config_invalid=0
 had_smoke_override=0
 restored=0
 
@@ -18,10 +17,6 @@ fi
 if [ -f opencode.json ]; then
 	cp opencode.json "$backup_dir/opencode.json"
 	had_config=1
-fi
-if [ -f opencode.json.invalid ]; then
-	cp opencode.json.invalid "$backup_dir/opencode.json.invalid"
-	had_config_invalid=1
 fi
 if [ -e .smoke-override ]; then
 	cp -R .smoke-override "$backup_dir/.smoke-override"
@@ -56,11 +51,6 @@ restore() {
 	else
 		rm -f opencode.json
 	fi
-	if [ "$had_config_invalid" -eq 1 ] && [ -f "$backup_dir/opencode.json.invalid" ]; then
-		cp "$backup_dir/opencode.json.invalid" opencode.json.invalid
-	else
-		rm -f opencode.json.invalid
-	fi
 	rm -rf "$backup_dir"
 }
 
@@ -70,7 +60,7 @@ trap 'exit 130' 2
 trap 'exit 131' 3
 trap 'exit 143' 15
 
-rm -f .env opencode.json opencode.json.invalid
+rm -f .env opencode.json
 rm -rf .smoke-override
 
 sh ./shell/host-path-resolver-smoke.sh
@@ -98,7 +88,15 @@ expect_env_line() {
 
 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh </dev/null
 test -f .env
-test -f opencode.json
+test ! -e opencode.json
+
+printf '%s\n' '{"userManaged":true}' > opencode.json
+HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh </dev/null
+if ! grep -Fq '"userManaged":true' opencode.json; then
+	printf '%s\n' 'bootstrap smoke: expected user-managed opencode.json to stay unchanged' >&2
+	exit 1
+fi
+rm -f opencode.json
 
 interactive_docs=./.smoke-override/interactive-docs
 interactive_code=./.smoke-override/interactive-code

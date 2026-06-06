@@ -148,17 +148,6 @@ func newConfigDoctorCLIRepo(t *testing.T) string {
     ports:
       - "${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"
 `)
-	writeCLIFile(t, filepath.Join(repoRoot, "opencode.json"), 0o600, `{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "rag-search-mcp": {
-      "type": "remote",
-      "url": "http://127.0.0.1:8765/mcp",
-      "enabled": true,
-      "timeout": 10000
-    }
-  }
-}`)
 	return repoRoot
 }
 
