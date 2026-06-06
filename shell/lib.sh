@@ -198,6 +198,30 @@ resolve_host_override() {
 	printf '%s' "$default_value"
 }
 
+host_path_keys() {
+	printf '%s\n' HOST_DOCS_DIR HOST_CODE_DIR HOST_INDEX_DIR HOST_MODELS_DIR
+}
+
+host_path_default() {
+	key="$1"
+	case "$key" in
+		HOST_DOCS_DIR) printf '%s' './data/docs' ;;
+		HOST_CODE_DIR) printf '%s' './data/code' ;;
+		HOST_INDEX_DIR) printf '%s' './data/index' ;;
+		HOST_MODELS_DIR) printf '%s' './data/models' ;;
+		*)
+			printf '%s\n' "unknown host path key '$key'" >&2
+			return 1
+			;;
+	esac
+}
+
+resolve_host_path() {
+	key="$1"
+	default_value=$(host_path_default "$key") || return 1
+	resolve_host_override "$key" "$default_value"
+}
+
 ensure_abs_dir() {
 	repo_root="$1"
 	input_path="$2"
@@ -210,6 +234,13 @@ ensure_abs_dir() {
 		cd "$target"
 		pwd -P
 	)
+}
+
+ensure_host_path_abs_dir() {
+	repo_root="$1"
+	key="$2"
+	configured=$(resolve_host_path "$key") || return 1
+	ensure_abs_dir "$repo_root" "$configured"
 }
 
 upsert_env_value() {
@@ -292,6 +323,13 @@ to_abs_path() {
 	else
 		printf '%s/%s' "$dir_abs" "$base_part"
 	fi
+}
+
+host_path_abs() {
+	repo_root="$1"
+	key="$2"
+	configured=$(resolve_host_path "$key") || return 1
+	to_abs_path "$repo_root" "$configured"
 }
 
 parse_bool_01() {

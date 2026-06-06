@@ -28,10 +28,8 @@ if [ "$is_full_reset" -eq 1 ]; then
 	repo_parent=$(dirname "$repo_root")
 	home_dir=${HOME-}
 
-	index_dir=$(resolve_host_override HOST_INDEX_DIR ./data/index)
-	models_dir=$(resolve_host_override HOST_MODELS_DIR ./data/models)
-	index_abs=$(to_abs_path "$repo_root" "$index_dir")
-	models_abs=$(to_abs_path "$repo_root" "$models_dir")
+	index_abs=$(host_path_abs "$repo_root" HOST_INDEX_DIR)
+	models_abs=$(host_path_abs "$repo_root" HOST_MODELS_DIR)
 
 	assert_safe_reset_dir() {
 		dir="$1"
