@@ -67,15 +67,8 @@ do
 	fi
 done
 
-for entry in \
-	"HOST_DOCS_DIR=./data/docs" \
-	"HOST_CODE_DIR=./data/code" \
-	"HOST_INDEX_DIR=./data/index" \
-	"HOST_MODELS_DIR=./data/models"
-do
-	key=${entry%%=*}
-	default_value=${entry#*=}
-	configured=$(resolve_host_override "$key" "$default_value")
+for key in $(host_path_keys); do
+	configured=$(resolve_host_path "$key")
 	abs_path=$(to_abs_path_no_create "$configured")
 	if [ -e "$abs_path" ]; then
 		canonical=$(canonical_existing_path "$abs_path") || continue

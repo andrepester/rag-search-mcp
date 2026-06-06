@@ -73,6 +73,35 @@ trap 'exit 143' 15
 rm -f .env opencode.json opencode.json.invalid
 rm -rf .smoke-override
 
+(
+	HOST_DOCS_DIR=
+	HOST_CODE_DIR=
+	HOST_INDEX_DIR=
+	HOST_MODELS_DIR=
+	. ./shell/lib.sh
+	test "$(resolve_host_path HOST_DOCS_DIR)" = './data/docs'
+	test "$(resolve_host_path HOST_CODE_DIR)" = './data/code'
+	test "$(resolve_host_path HOST_INDEX_DIR)" = './data/index'
+	test "$(resolve_host_path HOST_MODELS_DIR)" = './data/models'
+)
+
+{
+	printf '%s\n' 'HOST_DOCS_DIR=./.smoke-override/file-docs'
+	printf '%s\n' 'HOST_CODE_DIR=./.smoke-override/file-code'
+} > .env
+(
+	HOST_DOCS_DIR=./.smoke-override/process-docs
+	HOST_CODE_DIR=
+	HOST_INDEX_DIR=
+	HOST_MODELS_DIR=
+	. ./shell/lib.sh
+	test "$(resolve_host_path HOST_DOCS_DIR)" = './.smoke-override/process-docs'
+	test "$(resolve_host_path HOST_CODE_DIR)" = './.smoke-override/file-code'
+	test "$(resolve_host_path HOST_INDEX_DIR)" = './data/index'
+	test "$(resolve_host_path HOST_MODELS_DIR)" = './data/models'
+)
+rm -f .env
+
 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh </dev/null
 test -f .env
 test -f opencode.json

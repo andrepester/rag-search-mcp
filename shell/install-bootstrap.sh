@@ -7,8 +7,8 @@ host_repo=$(pwd -P)
 host_parent=$(dirname "$host_repo")
 repo_name=$(basename "$host_repo")
 
-docs_value=$(resolve_host_override HOST_DOCS_DIR ./data/docs)
-code_value=$(resolve_host_override HOST_CODE_DIR ./data/code)
+docs_value=$(resolve_host_path HOST_DOCS_DIR)
+code_value=$(resolve_host_path HOST_CODE_DIR)
 persist_source_dirs=0
 force_interactive_raw=${INSTALL_BOOTSTRAP_FORCE_INTERACTIVE-}
 force_interactive=$(parse_bool_01 "$force_interactive_raw" 0) || {
@@ -64,12 +64,9 @@ if [ "$persist_source_dirs" -eq 1 ]; then
 fi
 
 set -- docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e RAG_HTTP_PORT -e HOST_DOCS_DIR -e HOST_CODE_DIR -e HOST_INDEX_DIR -e HOST_MODELS_DIR -v "$host_parent:/workspace-parent" -w "/workspace-parent/$repo_name"
-for key in HOST_DOCS_DIR HOST_CODE_DIR HOST_INDEX_DIR HOST_MODELS_DIR; do
-	resolved=$(resolve_host_override "$key" "")
-	if [ -n "$resolved" ]; then
-		resolved_abs=$(ensure_abs_dir "$host_repo" "$resolved")
-		set -- "$@" -e "$key=$resolved_abs" -v "$resolved_abs:$resolved_abs"
-	fi
+for key in $(host_path_keys); do
+	resolved_abs=$(ensure_host_path_abs_dir "$host_repo" "$key")
+	set -- "$@" -e "$key=$resolved_abs" -v "$resolved_abs:$resolved_abs"
 done
 
 build_go_runner_image

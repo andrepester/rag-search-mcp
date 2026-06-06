@@ -290,6 +290,11 @@ boundary.
 | `OLLAMA_PORT` | `11434` | Host port mapped to the Ollama container |
 | `EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
 
+Shell workflows resolve the `HOST_*` path variables through the shared resolver
+in `shell/lib.sh`, using process environment first, then `.env`, then the
+built-in defaults above. Relative paths are resolved from the repository root
+before Docker bind mounts or `FULL_RESET` safety checks are applied.
+
 ### OpenCode configuration
 
 `opencode.json` uses remote MCP:
