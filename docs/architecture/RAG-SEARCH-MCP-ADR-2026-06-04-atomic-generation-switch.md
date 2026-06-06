@@ -26,7 +26,8 @@
 - If embedding, Chroma writes, source loading, or state-file activation fails before the pointer switch, the previous active generation remains visible.
 - Deleted sources are no longer visible after a successful pointer switch because queries filter by the new active generation.
 - Old generations remain available after activation so in-flight queries that already read the previous pointer can finish; a future cleanup path may remove stale generations after a safe grace boundary.
-- `make reindex` and `rag_reindex` share the same activation model because both write the same pointer file.
+- Standard `make index` runs and `rag_reindex` share the same activation model because both write the same pointer file.
+- `make index FRESH_INDEX=1` is an explicit destructive reset path: it recreates the configured collection before rebuilding and therefore does not preserve active-query continuity during the fresh run.
 - Existing unversioned indexes require a reindex after this incompatible index-layout change, consistent with the reindex-first ADR.
 - The follow-up single-writer/job-status implementation stores `reindex.lock` and `reindex-status.json` beside the active pointer so CLI and MCP reindex paths coordinate around the same build state.
 

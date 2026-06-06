@@ -53,12 +53,12 @@ sh ./shell/bootstrap-smoke.sh
 make test
 make install
 make doctor
-make reindex
+make index
 make clean-install
 make down
 ```
 
-`make install`, `make doctor`, `make reindex`, and `make clean-install` require
+`make install`, `make doctor`, `make index`, and `make clean-install` require
 a working Docker daemon, image pulls, bind mounts, and enough local disk space
 for Chroma and Ollama model data.
 

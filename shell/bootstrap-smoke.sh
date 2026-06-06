@@ -75,6 +75,16 @@ rm -rf .smoke-override
 
 sh ./shell/host-path-resolver-smoke.sh
 
+help_output=$(make help)
+if ! printf '%s\n' "$help_output" | grep -Fq 'make index'; then
+	printf '%s\n%s\n' 'bootstrap smoke: expected make help to show make index' "$help_output" >&2
+	exit 1
+fi
+if printf '%s\n' "$help_output" | grep -Fq 'make reindex'; then
+	printf '%s\n%s\n' 'bootstrap smoke: expected make help not to show make reindex' "$help_output" >&2
+	exit 1
+fi
+
 expect_env_line() {
 	label="$1"
 	key="$2"

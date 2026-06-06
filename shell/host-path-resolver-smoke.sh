@@ -338,9 +338,16 @@ test_shared_resolver_callers_do_not_drift() {
 	assert_file_contains "clean-install resolves index path through shared resolver" shell/clean-install.sh 'index_abs=$(host_path_abs "$repo_root" HOST_INDEX_DIR)'
 	assert_file_contains "clean-install resolves models path through shared resolver" shell/clean-install.sh 'models_abs=$(host_path_abs "$repo_root" HOST_MODELS_DIR)'
 	assert_file_contains "config-doctor reads host paths through shared resolver" shell/config-doctor.sh 'configured=$(resolve_host_path "$key")'
+	assert_file_contains "install delegates indexing through index helper" shell/install.sh 'sh ./shell/index.sh'
+	assert_file_contains "doctor delegates indexing through index helper" shell/doctor.sh 'sh ./shell/index.sh'
+	assert_file_contains "clean-install forces fresh index after FULL_RESET" shell/clean-install.sh 'install_fresh_index=1'
+	assert_file_contains "index helper passes fresh mode into container" shell/index.sh 'exec -T -e FRESH_INDEX="$fresh_index" rag-mcp /app/rag-index'
 	assert_file_not_contains "install-bootstrap must not use legacy host override directly" shell/install-bootstrap.sh 'resolve_host_override'
 	assert_file_not_contains "clean-install must not use legacy host override directly" shell/clean-install.sh 'resolve_host_override'
 	assert_file_not_contains "config-doctor must not use legacy host override directly" shell/config-doctor.sh 'resolve_host_override'
+	if [ -f shell/reindex.sh ]; then
+		fail "shell/reindex.sh should be renamed to shell/index.sh"
+	fi
 }
 
 test_project_host_key_surfaces_do_not_drift() {

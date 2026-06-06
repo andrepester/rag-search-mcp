@@ -19,7 +19,7 @@ Key capabilities:
 - Scope-aware search with `all`, `docs`, and `code`
 - Docker-based runtime with host-mounted source directories
 - Persistent host storage for index and embedding models
-- Operational `make` targets for install, reindex, diagnostics, and testing
+- Operational `make` targets for install, indexing, diagnostics, and testing
 
 ## Architecture
 
@@ -70,7 +70,7 @@ make install
 After changing mounted docs or code, rebuild the index with:
 
 ```bash
-make reindex
+make index
 ```
 
 ### Source directory layout
@@ -146,14 +146,14 @@ Scope behavior:
 
 | Target | Purpose |
 |---|---|
-| `make install` | Bootstrap config, start the stack, pull the model, reindex, verify data |
+| `make install` | Bootstrap config, start the stack, pull the model, index, verify data |
 | `make clean-install` | Reinstall the stack; preserves index and models by default |
 | `make up` | Start the runtime stack in detached mode |
 | `make down` | Stop the runtime stack without removing containers |
 | `make test` | Run Go tests through the Dockerfile `go-runner` stage |
-| `make reindex` | Rebuild the semantic index in the running `rag-mcp` container with a progress bar |
+| `make index` | Build or refresh the semantic index in the running `rag-mcp` container with a progress bar |
 | `make logs` | Stream runtime logs |
-| `make doctor` | Validate configuration, run runtime diagnostics, reindex, verify index data, and check health |
+| `make doctor` | Validate configuration, run runtime diagnostics, refresh the index, verify index data, and check health |
 
 `make doctor` runs configuration validation first. Configuration `error` findings stop the
 doctor run before runtime checks; `warning` findings are printed and runtime checks continue.
@@ -162,10 +162,10 @@ doctor run before runtime checks; `warning` findings are printed and runtime che
 quiet Compose build/pull output when the local Compose version supports it. Set
 `COMPOSE_UP_FLAGS=` to see full Compose build output while debugging.
 
-### Reindex consistency
+### Index Consistency
 
-Reindexing uses a single global Chroma collection and an active index generation
-pointer. A reindex run writes new or changed source chunks into a new generation
+Indexing uses a single global Chroma collection and an active index generation
+pointer. A standard `make index` run writes new or changed source chunks into a new generation
 and reuses unchanged source chunks when their fingerprint still matches. Search,
 chunk lookup, and source listing continue to read the previous active generation
 until the new generation is complete and the pointer is atomically switched.
@@ -175,15 +175,21 @@ Deleted sources are no longer returned after a successful switch because queries
 filter by the new active generation. Old generations are cleanup state; query
 correctness depends on the active pointer, not on immediate cleanup.
 
-Reindexing also uses a single-writer process lock under the same host-persistent
-state directory as the active pointer. CLI reindex runs and MCP-triggered
+Indexing also uses a single-writer process lock under the same host-persistent
+state directory as the active pointer. CLI index runs and MCP-triggered
 reindex runs both acquire the non-blocking lock before writing build-generation
 records. A second start is rejected instead of queued or used to restart the
 running job. CLI duplicate starts exit with code `2`; MCP duplicate starts
 return `ok=false`, `status=blocked`, and `error=already_running`.
 
-`make reindex` displays an indeterminate progress bar while the containerized
+`make index` displays an indeterminate progress bar while the containerized
 indexer is running, then prints the `rag-index` output when the run exits.
+Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode resets the
+configured Chroma collection before rebuilding, so unchanged sources are embedded
+again and old index records are not reused. It does not remove Ollama models or
+mounted source data from `HOST_DOCS_DIR` or `HOST_CODE_DIR`. Because it resets
+the active collection before rebuilding, searches may return no current index
+results until the fresh run completes.
 
 The `rag_reindex_status` tool returns status JSON with the current `active_job`
 when a run is active, the terminal `last_run` record, and the
@@ -200,6 +206,7 @@ make clean-install FULL_RESET=1
 ```
 
 `make clean-install FULL_RESET=1` permanently deletes the host directories resolved from `HOST_INDEX_DIR` and `HOST_MODELS_DIR` before reinstalling.
+The reinstall's index step automatically runs with `FRESH_INDEX=1`.
 
 ### Observability baseline
 
@@ -431,7 +438,7 @@ The CI shell scripts and workflow YAML consume those canonical sources instead o
 Rebuild it:
 
 ```bash
-make reindex
+make index
 ```
 
 The architecture decision for incompatible index, ingestion, and query changes is also reindex-first: old index artifacts do not require a migration path when they can be rebuilt from mounted sources. See `docs/architecture/RAG-SEARCH-MCP-ADR-2026-05-31-reindex-first-schema-evolution.md`.
@@ -439,16 +446,16 @@ The architecture decision for incompatible index, ingestion, and query changes i
 The current reindex implementation keeps one global Chroma collection and
 switches an active generation pointer instead of rotating collections. Existing
 indexes created before this generation metadata existed require one fresh
-`make reindex`. See `docs/architecture/RAG-SEARCH-MCP-ADR-2026-06-04-atomic-generation-switch.md`.
+`make index FRESH_INDEX=1`. See `docs/architecture/RAG-SEARCH-MCP-ADR-2026-06-04-atomic-generation-switch.md`.
 
-### `make reindex` reports that another reindex is running
+### `make index` reports that another index run is running
 
 Only one reindex writer is allowed at a time. Use the `rag_reindex_status` MCP
 tool to inspect the active job. If `active_job` is present, wait for that job to
 finish. The rejected start is recorded as `last_blocked_start`. Do not delete
 lock files manually while a legitimate reindex process is still running.
 
-### `make doctor` or `make reindex` says the stack is not running
+### `make doctor` or `make index` says the stack is not running
 
 Start the runtime first:
 
@@ -505,6 +512,7 @@ make clean-install FULL_RESET=1
 This deletes the resolved host paths for index and model persistence before reinstalling.
 The paths may point to new locations; `clean-install` creates missing parent directories while resolving them, then removes only the resolved `HOST_INDEX_DIR` and `HOST_MODELS_DIR` targets.
 Unsafe broad paths such as `/`, the repository root or parent, and `HOME` are refused.
+For an index-only reset without deleting persisted Ollama models, use `make index FRESH_INDEX=1`.
 
 ### Can I expose the service beyond localhost?
 

@@ -127,6 +127,28 @@ func TestReindexBuildsNewGenerationsAndReusesUnchangedSources(t *testing.T) {
 		t.Fatalf("second generation records were not written, got %d", got)
 	}
 
+	cfg.FreshIndex = true
+	fresh, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("fresh Reindex() failed: %v", err)
+	}
+	if fresh.ChangedFiles != 1 || fresh.ReusedFiles != 0 || fresh.ReusedChunks != 0 || fresh.EmbeddedChunks == 0 {
+		t.Fatalf("unexpected fresh stats: %+v", fresh)
+	}
+	if got := ollamaBackend.calls(); got <= firstEmbedCalls {
+		t.Fatalf("embedding calls after fresh index = %d, want more than %d", got, firstEmbedCalls)
+	}
+	if got := chromaBackend.countGeneration(first.Generation); got != 0 {
+		t.Fatalf("first generation records survived fresh index, got %d", got)
+	}
+	if got := chromaBackend.countGeneration(second.Generation); got != 0 {
+		t.Fatalf("second generation records survived fresh index, got %d", got)
+	}
+	if got := chromaBackend.countGeneration(fresh.Generation); got == 0 {
+		t.Fatalf("fresh generation records were not written, got %d", got)
+	}
+	cfg.FreshIndex = false
+
 	if err := os.WriteFile(guidePath, []byte("changed guide text"), 0o644); err != nil {
 		t.Fatalf("modify guide: %v", err)
 	}
@@ -217,6 +239,8 @@ func (b *ingestChromaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		b.handleGet(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == basePath+"/collections/"+b.collectionID+"/delete":
 		b.handleDelete(w, r)
+	case r.Method == http.MethodDelete && r.URL.Path == basePath+"/collections/"+b.collectionID:
+		b.handleDeleteCollection(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -318,6 +342,15 @@ func (b *ingestChromaBackend) handleDelete(w http.ResponseWriter, r *http.Reques
 		nextOrder = append(nextOrder, id)
 	}
 	b.order = nextOrder
+	b.mu.Unlock()
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{"deleted": true})
+}
+
+func (b *ingestChromaBackend) handleDeleteCollection(w http.ResponseWriter, _ *http.Request) {
+	b.mu.Lock()
+	b.records = map[string]ingestRecord{}
+	b.order = nil
 	b.mu.Unlock()
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{"deleted": true})
