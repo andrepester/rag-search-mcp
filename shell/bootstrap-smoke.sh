@@ -73,34 +73,18 @@ trap 'exit 143' 15
 rm -f .env opencode.json opencode.json.invalid
 rm -rf .smoke-override
 
-(
-	HOST_DOCS_DIR=
-	HOST_CODE_DIR=
-	HOST_INDEX_DIR=
-	HOST_MODELS_DIR=
-	. ./shell/lib.sh
-	test "$(resolve_host_path HOST_DOCS_DIR)" = './data/docs'
-	test "$(resolve_host_path HOST_CODE_DIR)" = './data/code'
-	test "$(resolve_host_path HOST_INDEX_DIR)" = './data/index'
-	test "$(resolve_host_path HOST_MODELS_DIR)" = './data/models'
-)
+sh ./shell/host-path-resolver-smoke.sh
 
-{
-	printf '%s\n' 'HOST_DOCS_DIR=./.smoke-override/file-docs'
-	printf '%s\n' 'HOST_CODE_DIR=./.smoke-override/file-code'
-} > .env
-(
-	HOST_DOCS_DIR=./.smoke-override/process-docs
-	HOST_CODE_DIR=
-	HOST_INDEX_DIR=
-	HOST_MODELS_DIR=
-	. ./shell/lib.sh
-	test "$(resolve_host_path HOST_DOCS_DIR)" = './.smoke-override/process-docs'
-	test "$(resolve_host_path HOST_CODE_DIR)" = './.smoke-override/file-code'
-	test "$(resolve_host_path HOST_INDEX_DIR)" = './data/index'
-	test "$(resolve_host_path HOST_MODELS_DIR)" = './data/models'
-)
-rm -f .env
+expect_env_line() {
+	label="$1"
+	key="$2"
+	value="$3"
+	if ! grep -Fxq "$key=$value" .env; then
+		printf '%s\n' "bootstrap smoke: expected $label in .env" >&2
+		printf '  expected: %s=%s\n' "$key" "$value" >&2
+		exit 1
+	fi
+}
 
 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh </dev/null
 test -f .env
@@ -111,14 +95,8 @@ interactive_code=./.smoke-override/interactive-code
 printf 'c\n%s\n%s\n' "$interactive_docs" "$interactive_code" | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh
 test -d "$interactive_docs"
 test -d "$interactive_code"
-if ! grep -Eq '^HOST_DOCS_DIR=\./\.smoke-override/interactive-docs$' .env; then
-	printf '%s\n' 'interactive smoke: expected HOST_DOCS_DIR custom value in .env' >&2
-	exit 1
-fi
-if ! grep -Eq '^HOST_CODE_DIR=\./\.smoke-override/interactive-code$' .env; then
-	printf '%s\n' 'interactive smoke: expected HOST_CODE_DIR custom value in .env' >&2
-	exit 1
-fi
+expect_env_line 'interactive custom docs value' HOST_DOCS_DIR "$interactive_docs"
+expect_env_line 'interactive custom code value' HOST_CODE_DIR "$interactive_code"
 
 if printf 'maybe\n' | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh; then
 	printf '%s\n' 'interactive smoke: expected invalid selection to fail' >&2
@@ -129,26 +107,14 @@ keep_docs=./.smoke-override/keep-docs
 keep_code=./.smoke-override/keep-code
 printf 'c\n%s\n%s\n' "$keep_docs" "$keep_code" | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh
 printf '\n' | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh
-if ! grep -Eq '^HOST_DOCS_DIR=\./\.smoke-override/keep-docs$' .env; then
-	printf '%s\n' 'interactive smoke: expected Enter to keep existing HOST_DOCS_DIR value' >&2
-	exit 1
-fi
-if ! grep -Eq '^HOST_CODE_DIR=\./\.smoke-override/keep-code$' .env; then
-	printf '%s\n' 'interactive smoke: expected Enter to keep existing HOST_CODE_DIR value' >&2
-	exit 1
-fi
+expect_env_line 'Enter to keep existing docs value' HOST_DOCS_DIR "$keep_docs"
+expect_env_line 'Enter to keep existing code value' HOST_CODE_DIR "$keep_code"
 
 runtime_docs=./.smoke-override/runtime-docs
 runtime_code=./.smoke-override/runtime-code
 printf '\n' | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR="$runtime_docs" HOST_CODE_DIR="$runtime_code" HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh
-if ! grep -Eq '^HOST_DOCS_DIR=\./\.smoke-override/runtime-docs$' .env; then
-	printf '%s\n' 'interactive smoke: expected runtime HOST_DOCS_DIR override to persist on Enter' >&2
-	exit 1
-fi
-if ! grep -Eq '^HOST_CODE_DIR=\./\.smoke-override/runtime-code$' .env; then
-	printf '%s\n' 'interactive smoke: expected runtime HOST_CODE_DIR override to persist on Enter' >&2
-	exit 1
-fi
+expect_env_line 'runtime docs override persisted on Enter' HOST_DOCS_DIR "$runtime_docs"
+expect_env_line 'runtime code override persisted on Enter' HOST_CODE_DIR "$runtime_code"
 
 HOST_DOCS_DIR=./.smoke-override/docs HOST_CODE_DIR=./.smoke-override/code HOST_INDEX_DIR=./.smoke-override/index HOST_MODELS_DIR=./.smoke-override/models sh ./shell/install-bootstrap.sh </dev/null
 test -d ./.smoke-override/docs
