@@ -79,6 +79,78 @@ func TestCoordinatorBlocksConcurrentRunsAndRecordsStatus(t *testing.T) {
 	}
 }
 
+func TestRunProgressIsRecordedAndFinished(t *testing.T) {
+	ctx := context.Background()
+	coord := New(t.TempDir())
+
+	run, err := coord.Start(ctx, TriggerCLI)
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	if err := run.UpdateProgress(ctx, Progress{TotalDocuments: 3, ProcessedDocuments: 1}); err != nil {
+		t.Fatalf("UpdateProgress() failed: %v", err)
+	}
+
+	status, err := coord.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status() failed: %v", err)
+	}
+	if status.Progress == nil || status.Progress.TotalDocuments != 3 || status.Progress.ProcessedDocuments != 1 {
+		t.Fatalf("progress = %+v, want 1/3", status.Progress)
+	}
+
+	if err := run.UpdateProgress(ctx, Progress{TotalDocuments: 3, ProcessedDocuments: 9}); err != nil {
+		t.Fatalf("UpdateProgress() clamp case failed: %v", err)
+	}
+	status, err = coord.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status() after clamp failed: %v", err)
+	}
+	if status.Progress == nil || status.Progress.ProcessedDocuments != 3 {
+		t.Fatalf("clamped progress = %+v, want 3/3", status.Progress)
+	}
+
+	if err := run.Finish(ctx, ingest.Stats{Files: 3, DocsFiles: 3, Generation: "gen-progress"}, nil); err != nil {
+		t.Fatalf("Finish() failed: %v", err)
+	}
+	status, err = coord.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status() after finish failed: %v", err)
+	}
+	if status.Progress != nil {
+		t.Fatalf("finished status progress = %+v, want nil", status.Progress)
+	}
+	if status.LastRun == nil || status.LastRun.TotalDocuments != 3 || status.LastRun.ProcessedDocuments != 3 {
+		t.Fatalf("last run progress = %+v, want 3/3", status.LastRun)
+	}
+}
+
+func TestFailedRunPreservesPartialProgress(t *testing.T) {
+	ctx := context.Background()
+	coord := New(t.TempDir())
+
+	run, err := coord.Start(ctx, TriggerCLI)
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	if err := run.UpdateProgress(ctx, Progress{TotalDocuments: 5, ProcessedDocuments: 2}); err != nil {
+		t.Fatalf("UpdateProgress() failed: %v", err)
+	}
+
+	runErr := errors.New("embed batch: failed")
+	if err := run.Finish(ctx, ingest.Stats{Files: 5, DocsFiles: 5}, runErr); err != nil {
+		t.Fatalf("Finish() failed: %v", err)
+	}
+
+	status, err := coord.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status() failed: %v", err)
+	}
+	if status.LastRun == nil || status.LastRun.TotalDocuments != 5 || status.LastRun.ProcessedDocuments != 2 {
+		t.Fatalf("failed last run progress = %+v, want 2/5", status.LastRun)
+	}
+}
+
 func TestCoordinatorRecordsFailedRun(t *testing.T) {
 	ctx := context.Background()
 	coord := New(t.TempDir())

@@ -215,7 +215,20 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 		slog.String("collection", cfg.CollectionName),
 	)
 
-	stats, err := reindexWithRetry(retryCtx, ingestSvc)
+	progressCtx := ingest.WithDocumentProgressReporter(retryCtx, func(progress ingest.DocumentProgress) {
+		if updateErr := run.UpdateProgress(retryCtx, reindexjob.Progress{
+			TotalDocuments:     progress.TotalDocuments,
+			ProcessedDocuments: progress.ProcessedDocuments,
+		}); updateErr != nil {
+			logger.WarnContext(ctx, "record reindex progress failed",
+				slog.String("event", "reindex_progress_error"),
+				slog.String("job_id", run.Job.ID),
+				slog.String("error", updateErr.Error()),
+			)
+		}
+	})
+
+	stats, err := reindexWithRetry(progressCtx, ingestSvc)
 	result.Stats = stats
 	result.Duration = time.Since(start)
 	if finishErr := run.Finish(ctx, stats, err); finishErr != nil {

@@ -342,7 +342,9 @@ test_shared_resolver_callers_do_not_drift() {
 	assert_file_contains "doctor delegates indexing through index helper" shell/doctor.sh 'sh ./shell/index.sh'
 	assert_file_contains "clean-install forces fresh index after FULL_RESET" shell/clean-install.sh 'install_fresh_index=1'
 	assert_file_contains "index helper defaults to human output" shell/index.sh 'output=${OUTPUT:-human}'
-	assert_file_contains "index helper passes fresh mode and output into container" shell/index.sh 'exec -T -e FRESH_INDEX="$fresh_index" rag-mcp /app/rag-index --output "$output"'
+	assert_file_contains "index helper passes fresh mode into container wrapper" shell/index.sh 'exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c'
+	assert_file_contains "index helper passes output into container indexer" shell/index.sh '/app/rag-index --output "$1"'
+	assert_file_contains "index helper passes output argument to container wrapper" shell/index.sh "' sh \"\$output\""
 	assert_file_contains "index helper detects stale rag-index binary" shell/index.sh 'running rag-mcp container does not support OUTPUT modes'
 	assert_file_not_contains "install-bootstrap must not use legacy host override directly" shell/install-bootstrap.sh 'resolve_host_override'
 	assert_file_not_contains "clean-install must not use legacy host override directly" shell/clean-install.sh 'resolve_host_override'

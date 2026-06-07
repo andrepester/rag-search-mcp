@@ -40,6 +40,22 @@ type Stats struct {
 	Generation     string `json:"generation"`
 }
 
+type DocumentProgress struct {
+	TotalDocuments     int
+	ProcessedDocuments int
+}
+
+type progressReporterKey struct{}
+
+type ProgressReporter func(DocumentProgress)
+
+func WithDocumentProgressReporter(ctx context.Context, reporter ProgressReporter) context.Context {
+	if reporter == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, progressReporterKey{}, reporter)
+}
+
 type document struct {
 	Scope      string
 	SourcePath string
@@ -89,22 +105,23 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 
 	documents, stats, err := s.loadDocuments()
 	if err != nil {
-		return Stats{}, err
+		return stats, err
 	}
+	reportDocumentProgress(ctx, stats.Files, 0)
 
 	stateStore := indexstate.New(s.Config.IndexStateDir)
 	activeManifest, err := stateStore.Load()
 	if err != nil {
-		return Stats{}, err
+		return stats, err
 	}
 
 	if s.Config.FreshIndex {
 		if err := s.Chroma.DeleteCollection(ctx, collectionID); err != nil && !store.IsNotFound(err) {
-			return Stats{}, fmt.Errorf("reset collection for fresh index: %w", err)
+			return stats, fmt.Errorf("reset collection for fresh index: %w", err)
 		}
 		collectionID, err = s.Chroma.EnsureCollection(ctx, s.Config.CollectionName)
 		if err != nil {
-			return Stats{}, fmt.Errorf("ensure collection after fresh reset: %w", err)
+			return stats, fmt.Errorf("ensure collection after fresh reset: %w", err)
 		}
 		activeManifest = indexstate.Manifest{Sources: map[string]indexstate.SourceManifest{}}
 	} else if activeManifest.CollectionName != "" && activeManifest.CollectionName != s.Config.CollectionName {
@@ -124,13 +141,14 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 	}()
 
 	nextSources := map[string]indexstate.SourceManifest{}
+	processedDocuments := 0
 	for _, doc := range documents {
 		sourceHash := sourceFingerprint(doc, s.Config)
 		if activeGeneration != "" {
 			if activeSource, ok := activeManifest.Sources[doc.SourcePath]; ok && activeSource.Hash == sourceHash {
 				chunkIDs, copied, err := s.copyUnchangedSource(ctx, collectionID, activeGeneration, buildGeneration, doc, sourceHash)
 				if err != nil {
-					return Stats{}, err
+					return stats, err
 				}
 				if copied {
 					stats.ReusedFiles++
@@ -141,6 +159,8 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 						Hash:     sourceHash,
 						ChunkIDs: chunkIDs,
 					}
+					processedDocuments++
+					reportDocumentProgress(ctx, stats.Files, processedDocuments)
 					continue
 				}
 			}
@@ -148,7 +168,7 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 
 		chunkIDs, err := s.indexChangedSource(ctx, collectionID, buildGeneration, doc, sourceHash)
 		if err != nil {
-			return Stats{}, err
+			return stats, err
 		}
 		stats.ChangedFiles++
 		stats.EmbeddedChunks += len(chunkIDs)
@@ -158,6 +178,8 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 			Hash:     sourceHash,
 			ChunkIDs: chunkIDs,
 		}
+		processedDocuments++
+		reportDocumentProgress(ctx, stats.Files, processedDocuments)
 	}
 
 	for sourcePath := range activeManifest.Sources {
@@ -172,11 +194,37 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 		Sources:          nextSources,
 	}
 	if err := stateStore.Save(nextManifest); err != nil {
-		return Stats{}, err
+		return stats, err
 	}
 	switched = true
 
 	return stats, nil
+}
+
+func reportDocumentProgress(ctx context.Context, totalDocuments, processedDocuments int) {
+	reporter, ok := ctx.Value(progressReporterKey{}).(ProgressReporter)
+	if !ok || reporter == nil {
+		return
+	}
+	reporter(normalizeDocumentProgress(totalDocuments, processedDocuments))
+}
+
+func normalizeDocumentProgress(totalDocuments, processedDocuments int) DocumentProgress {
+	if totalDocuments < 0 {
+		totalDocuments = 0
+	}
+	if processedDocuments < 0 {
+		processedDocuments = 0
+	}
+	if totalDocuments == 0 {
+		processedDocuments = 0
+	} else if processedDocuments > totalDocuments {
+		processedDocuments = totalDocuments
+	}
+	return DocumentProgress{
+		TotalDocuments:     totalDocuments,
+		ProcessedDocuments: processedDocuments,
+	}
 }
 
 func (s *Service) copyUnchangedSource(ctx context.Context, collectionID, activeGeneration, buildGeneration string, doc document, sourceHash string) ([]string, bool, error) {

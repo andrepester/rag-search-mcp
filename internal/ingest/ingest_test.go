@@ -172,6 +172,117 @@ func TestReindexBuildsNewGenerationsAndReusesUnchangedSources(t *testing.T) {
 	}
 }
 
+func TestReindexReportsDocumentProgress(t *testing.T) {
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "a.md"), []byte("first guide text"), 0o644); err != nil {
+		t.Fatalf("write first doc: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "b.md"), []byte("second guide text"), 0o644); err != nil {
+		t.Fatalf("write second doc: %v", err)
+	}
+
+	chromaBackend := newIngestChromaBackend()
+	chromaServer := httptest.NewServer(chromaBackend)
+	defer chromaServer.Close()
+
+	ollamaBackend := &ingestOllamaBackend{}
+	ollamaServer := httptest.NewServer(ollamaBackend)
+	defer ollamaServer.Close()
+
+	cfg := &config.Config{
+		DocsDir:          docsDir,
+		CodeDir:          filepath.Join(root, "missing-code"),
+		CollectionName:   "rag",
+		IndexStateDir:    filepath.Join(root, "index-state"),
+		EmbedModel:       "test-embed",
+		ChunkSize:        200,
+		ChunkOverlap:     20,
+		EnableCodeIngest: false,
+	}
+	svc := &Service{
+		Config: cfg,
+		Ollama: ollama.New(ollamaServer.URL),
+		Chroma: store.NewChromaClient(chromaServer.URL, "default_tenant", "default_database"),
+	}
+
+	var progresses []DocumentProgress
+	ctx := WithDocumentProgressReporter(context.Background(), func(progress DocumentProgress) {
+		progresses = append(progresses, progress)
+	})
+	stats, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("Reindex() failed: %v", err)
+	}
+	if stats.Files != 2 {
+		t.Fatalf("Files = %d, want 2", stats.Files)
+	}
+
+	want := []DocumentProgress{
+		{TotalDocuments: 2, ProcessedDocuments: 0},
+		{TotalDocuments: 2, ProcessedDocuments: 1},
+		{TotalDocuments: 2, ProcessedDocuments: 2},
+	}
+	if len(progresses) != len(want) {
+		t.Fatalf("progress count = %d, want %d: %+v", len(progresses), len(want), progresses)
+	}
+	for i := range want {
+		if progresses[i] != want[i] {
+			t.Fatalf("progress[%d] = %+v, want %+v", i, progresses[i], want[i])
+		}
+	}
+}
+
+func TestReindexReportsEmptyDocumentProgress(t *testing.T) {
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+
+	chromaBackend := newIngestChromaBackend()
+	chromaServer := httptest.NewServer(chromaBackend)
+	defer chromaServer.Close()
+
+	ollamaServer := httptest.NewServer(&ingestOllamaBackend{})
+	defer ollamaServer.Close()
+
+	cfg := &config.Config{
+		DocsDir:          docsDir,
+		CodeDir:          filepath.Join(root, "missing-code"),
+		CollectionName:   "rag",
+		IndexStateDir:    filepath.Join(root, "index-state"),
+		EmbedModel:       "test-embed",
+		ChunkSize:        200,
+		ChunkOverlap:     20,
+		EnableCodeIngest: false,
+	}
+	svc := &Service{
+		Config: cfg,
+		Ollama: ollama.New(ollamaServer.URL),
+		Chroma: store.NewChromaClient(chromaServer.URL, "default_tenant", "default_database"),
+	}
+
+	var progresses []DocumentProgress
+	ctx := WithDocumentProgressReporter(context.Background(), func(progress DocumentProgress) {
+		progresses = append(progresses, progress)
+	})
+	stats, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("Reindex() failed: %v", err)
+	}
+	if stats.Files != 0 {
+		t.Fatalf("Files = %d, want 0", stats.Files)
+	}
+	want := []DocumentProgress{{TotalDocuments: 0, ProcessedDocuments: 0}}
+	if len(progresses) != len(want) || progresses[0] != want[0] {
+		t.Fatalf("progresses = %+v, want %+v", progresses, want)
+	}
+}
+
 func TestReindexSplitsChangedSourceIntoEmbedBatches(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
