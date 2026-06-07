@@ -59,7 +59,8 @@ for key in \
 	RAG_SCOPE_DEFAULT \
 	RAG_CHUNK_SIZE \
 	RAG_CHUNK_OVERLAP \
-	RAG_MAX_TOP_K
+	RAG_MAX_TOP_K \
+	RAG_MAX_SEARCH_DISTANCE
 do
 	eval "is_set=\${$key+x}"
 	if [ -n "$is_set" ]; then

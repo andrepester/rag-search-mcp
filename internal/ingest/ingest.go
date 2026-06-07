@@ -76,6 +76,11 @@ var codeExt = map[string]struct{}{
 	".sh":    {},
 }
 
+const (
+	embedBatchSize       = 8
+	chromaWriteBatchSize = 32
+)
+
 func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 	collectionID, err := s.Chroma.EnsureCollection(ctx, s.Config.CollectionName)
 	if err != nil {
@@ -243,9 +248,8 @@ func (s *Service) indexChangedSource(ctx context.Context, collectionID, generati
 		})
 	}
 
-	const batchSize = 32
-	for i := 0; i < len(chunks); i += batchSize {
-		end := i + batchSize
+	for i := 0; i < len(chunks); i += embedBatchSize {
+		end := i + embedBatchSize
 		if end > len(chunks) {
 			end = len(chunks)
 		}
@@ -263,9 +267,8 @@ func (s *Service) indexChangedSource(ctx context.Context, collectionID, generati
 }
 
 func writeBatches(ctx context.Context, chroma *store.ChromaClient, collectionID string, ids []string, documents []string, metadatas []map[string]any, embeddings [][]float64) error {
-	const batchSize = 32
-	for i := 0; i < len(ids); i += batchSize {
-		end := i + batchSize
+	for i := 0; i < len(ids); i += chromaWriteBatchSize {
+		end := i + chromaWriteBatchSize
 		if end > len(ids) {
 			end = len(ids)
 		}

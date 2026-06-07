@@ -121,6 +121,53 @@ func TestListSourcePathsPaginatesDeduplicatesAndSorts(t *testing.T) {
 	}
 }
 
+func TestCountRecordsPaginates(t *testing.T) {
+	base := "/api/v2/tenants/default_tenant/databases/default_database"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != base+"/collections/col-1/get" {
+			http.NotFound(w, r)
+			return
+		}
+
+		var payload struct {
+			Where  map[string]any `json:"where"`
+			Limit  int            `json:"limit"`
+			Offset int            `json:"offset"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if payload.Limit != 500 {
+			t.Fatalf("limit = %d, want 500", payload.Limit)
+		}
+		if got := whereString(payload.Where, "index_generation"); got != "gen-1" {
+			t.Fatalf("generation filter = %q, want gen-1", got)
+		}
+
+		switch payload.Offset {
+		case 0:
+			_ = json.NewEncoder(w).Encode(map[string]any{"ids": []string{"1", "2"}, "metadatas": []map[string]any{{}, {}}})
+		case 2:
+			_ = json.NewEncoder(w).Encode(map[string]any{"ids": []string{"3"}, "metadatas": []map[string]any{{}}})
+		case 3:
+			_ = json.NewEncoder(w).Encode(map[string]any{"ids": []string{}, "metadatas": []map[string]any{}})
+		default:
+			t.Fatalf("unexpected offset %d", payload.Offset)
+		}
+	}))
+	defer server.Close()
+
+	client := NewChromaClient(server.URL, "default_tenant", "default_database")
+	count, err := client.CountRecords(context.Background(), "col-1", map[string]any{"index_generation": "gen-1"})
+	if err != nil {
+		t.Fatalf("CountRecords() failed: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("count = %d, want 3", count)
+	}
+}
+
 func TestGetByChunkIDFiltersActiveGeneration(t *testing.T) {
 	base := "/api/v2/tenants/default_tenant/databases/default_database"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

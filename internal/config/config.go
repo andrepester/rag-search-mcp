@@ -8,26 +8,33 @@ import (
 	"strings"
 )
 
+const (
+	DefaultMaxSearchDistance = 0.50
+	MinSearchDistance        = 0.01
+	MaxSearchDistance        = 2.00
+)
+
 type Config struct {
-	Host             string
-	Port             int
-	DocsDir          string
-	CodeDir          string
-	ChromaURL        string
-	ChromaTenant     string
-	ChromaDatabase   string
-	CollectionName   string
-	IndexStateDir    string
-	OllamaHost       string
-	EmbedModel       string
-	ChunkSize        int
-	ChunkOverlap     int
-	DefaultScope     string
-	MaxTopK          int
-	EnableCodeIngest bool
-	FreshIndex       bool
-	LogLevel         string
-	LogFormat        string
+	Host              string
+	Port              int
+	DocsDir           string
+	CodeDir           string
+	ChromaURL         string
+	ChromaTenant      string
+	ChromaDatabase    string
+	CollectionName    string
+	IndexStateDir     string
+	OllamaHost        string
+	EmbedModel        string
+	ChunkSize         int
+	ChunkOverlap      int
+	DefaultScope      string
+	MaxTopK           int
+	MaxSearchDistance float64
+	EnableCodeIngest  bool
+	FreshIndex        bool
+	LogLevel          string
+	LogFormat         string
 }
 
 func Load() (Config, error) {
@@ -60,6 +67,14 @@ func Load() (Config, error) {
 	}
 	if maxTopK <= 0 {
 		return Config{}, fmt.Errorf("RAG_MAX_TOP_K must be > 0")
+	}
+
+	maxSearchDistance, err := envFloat("RAG_MAX_SEARCH_DISTANCE", DefaultMaxSearchDistance)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := validateSearchDistance("RAG_MAX_SEARCH_DISTANCE", maxSearchDistance); err != nil {
+		return Config{}, err
 	}
 
 	enableCodeIngest, err := envBool("RAG_ENABLE_CODE_INGEST", true)
@@ -103,25 +118,26 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
-		Host:             env("RAG_HTTP_HOST", "127.0.0.1"),
-		Port:             port,
-		DocsDir:          docsDir,
-		CodeDir:          codeDir,
-		ChromaURL:        strings.TrimRight(env("RAG_CHROMA_URL", "http://chroma:8000"), "/"),
-		ChromaTenant:     env("RAG_CHROMA_TENANT", "default_tenant"),
-		ChromaDatabase:   env("RAG_CHROMA_DATABASE", "default_database"),
-		CollectionName:   env("RAG_COLLECTION_NAME", "rag"),
-		IndexStateDir:    indexStateDir,
-		OllamaHost:       strings.TrimRight(env("OLLAMA_HOST", "http://host.docker.internal:11434"), "/"),
-		EmbedModel:       env("EMBED_MODEL", "nomic-embed-text"),
-		ChunkSize:        chunkSize,
-		ChunkOverlap:     chunkOverlap,
-		DefaultScope:     defaultScope,
-		MaxTopK:          maxTopK,
-		EnableCodeIngest: enableCodeIngest,
-		FreshIndex:       freshIndex,
-		LogLevel:         logLevel,
-		LogFormat:        logFormat,
+		Host:              env("RAG_HTTP_HOST", "127.0.0.1"),
+		Port:              port,
+		DocsDir:           docsDir,
+		CodeDir:           codeDir,
+		ChromaURL:         strings.TrimRight(env("RAG_CHROMA_URL", "http://chroma:8000"), "/"),
+		ChromaTenant:      env("RAG_CHROMA_TENANT", "default_tenant"),
+		ChromaDatabase:    env("RAG_CHROMA_DATABASE", "default_database"),
+		CollectionName:    env("RAG_COLLECTION_NAME", "rag"),
+		IndexStateDir:     indexStateDir,
+		OllamaHost:        strings.TrimRight(env("OLLAMA_HOST", "http://host.docker.internal:11434"), "/"),
+		EmbedModel:        env("EMBED_MODEL", "nomic-embed-text"),
+		ChunkSize:         chunkSize,
+		ChunkOverlap:      chunkOverlap,
+		DefaultScope:      defaultScope,
+		MaxTopK:           maxTopK,
+		MaxSearchDistance: maxSearchDistance,
+		EnableCodeIngest:  enableCodeIngest,
+		FreshIndex:        freshIndex,
+		LogLevel:          logLevel,
+		LogFormat:         logFormat,
 	}
 
 	return cfg, nil
@@ -144,6 +160,25 @@ func envInt(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer", key)
 	}
 	return value, nil
+}
+
+func envFloat(key string, fallback float64) (float64, error) {
+	raw, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number", key)
+	}
+	return value, nil
+}
+
+func validateSearchDistance(key string, value float64) error {
+	if value < MinSearchDistance || value > MaxSearchDistance {
+		return fmt.Errorf("%s must be between %.2f and %.2f", key, MinSearchDistance, MaxSearchDistance)
+	}
+	return nil
 }
 
 func envBool(key string, fallback bool) (bool, error) {

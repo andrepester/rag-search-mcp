@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -27,17 +29,23 @@ const (
 	defaultReadTimeout       = 15 * time.Second
 	defaultWriteTimeout      = 60 * time.Second
 	defaultIdleTimeout       = 120 * time.Second
-	defaultMaxHeaderBytes    = 1 << 20 // 1 MiB
-	defaultMaxMCPBodyBytes   = 2 << 20 // 2 MiB
+	defaultMaxHeaderBytes    = 1 << 20  // 1 MiB
+	defaultMaxMCPBodyBytes   = 2 << 20  // 2 MiB
+	defaultMaxUIAPIBodyBytes = 64 << 10 // 64 KiB
+	defaultMCPTopK           = 5
 	defaultReadHeaderTimeout = 5 * time.Second
 	defaultReadinessTimeout  = 3 * time.Second
 )
 
+//go:embed web/*
+var webAssets embed.FS
+
 type searchInput struct {
-	Query        string `json:"query" jsonschema:"Search query"`
-	TopK         int    `json:"top_k,omitempty" jsonschema:"Maximum number of matches"`
-	Scope        string `json:"scope,omitempty" jsonschema:"Search scope: all, docs, code"`
-	SourceFilter string `json:"source_filter,omitempty" jsonschema:"Substring filter for source_path"`
+	Query        string   `json:"query" jsonschema:"Search query"`
+	TopK         int      `json:"top_k,omitempty" jsonschema:"Maximum number of matches"`
+	Scope        string   `json:"scope,omitempty" jsonschema:"Search scope: all, docs, code"`
+	SourceFilter string   `json:"source_filter,omitempty" jsonschema:"Substring filter for source_path"`
+	MaxDistance  *float64 `json:"max_distance,omitempty" jsonschema:"Maximum cosine distance threshold; lower is stricter"`
 }
 
 type getChunkInput struct {
@@ -49,7 +57,8 @@ type listSourcesInput struct {
 }
 
 type ragService interface {
-	Search(ctx context.Context, query string, topK int, scope string, sourceFilter string) (rag.SearchResponse, error)
+	SearchWithOptions(ctx context.Context, options rag.SearchOptions) (rag.SearchResponse, error)
+	SearchSettings() rag.SearchSettings
 	GetChunk(ctx context.Context, chunkID string) rag.ChunkResponse
 	ListSources(ctx context.Context, scope string) (rag.ListSourcesResponse, error)
 	RunReindex(ctx context.Context, trigger string, onStart func(reindexjob.Job)) (ingest.Stats, error)
@@ -133,7 +142,16 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 		start := time.Now()
 		scope := input.Scope
 		topK := input.TopK
-		response, err := ragSvc.Search(ctx, input.Query, input.TopK, input.Scope, input.SourceFilter)
+		if topK <= 0 {
+			topK = defaultMCPTopK
+		}
+		response, err := ragSvc.SearchWithOptions(ctx, rag.SearchOptions{
+			Query:        input.Query,
+			TopK:         topK,
+			Scope:        input.Scope,
+			SourceFilter: input.SourceFilter,
+			MaxDistance:  input.MaxDistance,
+		})
 		if err != nil {
 			logToolError(ctx, logger, "search", start, err,
 				slog.String("scope", scope),
@@ -317,12 +335,21 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 	return wrapMCPHandler(handler, defaultMaxMCPBodyBytes)
 }
 
-func newMux(mcpHandler http.Handler, readiness readinessChecker, logger *slog.Logger, metrics *observability.Metrics) *http.ServeMux {
+func newMux(mcpHandler http.Handler, ragSvc ragService, logger *slog.Logger, metrics *observability.Metrics) *http.ServeMux {
 	logger = componentLogger(logger, "rag-mcp")
+	api := uiAPI{ragSvc: ragSvc}
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
+	mux.Handle("/api/search", withUISecurityHeaders(http.HandlerFunc(api.handleSearch)))
+	mux.Handle("/api/search-settings", withUISecurityHeaders(http.HandlerFunc(api.handleSearchSettings)))
+	mux.Handle("/api/chunk", withUISecurityHeaders(http.HandlerFunc(api.handleChunk)))
+	mux.Handle("/api/sources", withUISecurityHeaders(http.HandlerFunc(api.handleSources)))
+	mux.Handle("/ui/", withUISecurityHeaders(http.StripPrefix("/ui/", newUIHandler())))
+	mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -331,7 +358,7 @@ func newMux(mcpHandler http.Handler, readiness readinessChecker, logger *slog.Lo
 		ctx, cancel := context.WithTimeout(r.Context(), defaultReadinessTimeout)
 		defer cancel()
 
-		report := readiness.CheckReadiness(ctx)
+		report := ragSvc.CheckReadiness(ctx)
 		metrics.RecordReadiness(report)
 		for _, dependency := range report.Dependencies {
 			if dependency.Status == observability.StatusOK {
@@ -355,7 +382,184 @@ func newMux(mcpHandler http.Handler, readiness readinessChecker, logger *slog.Lo
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_ = metrics.WritePrometheus(w)
 	})
+	mux.Handle("/", withUISecurityHeaders(newUIHandler()))
 	return mux
+}
+
+type uiAPI struct {
+	ragSvc ragService
+}
+
+func (api uiAPI) handleSearch(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	var input searchInput
+	if !decodeUIJSON(w, r, &input) {
+		return
+	}
+
+	query := strings.TrimSpace(input.Query)
+	if query == "" {
+		writeAPIError(w, http.StatusBadRequest, "query is required")
+		return
+	}
+
+	scope, ok := normalizeUIScope(w, input.Scope)
+	if !ok {
+		return
+	}
+
+	if input.TopK < 0 {
+		writeAPIError(w, http.StatusBadRequest, "top_k must be zero or positive")
+		return
+	}
+	if input.MaxDistance != nil && !validSearchDistance(*input.MaxDistance) {
+		writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("max_distance must be between %.2f and %.2f", config.MinSearchDistance, config.MaxSearchDistance))
+		return
+	}
+
+	response, err := api.ragSvc.SearchWithOptions(r.Context(), rag.SearchOptions{
+		Query:        query,
+		TopK:         input.TopK,
+		Scope:        scope,
+		SourceFilter: strings.TrimSpace(input.SourceFilter),
+		MaxDistance:  input.MaxDistance,
+	})
+	if err != nil {
+		writeAPIError(w, http.StatusBadGateway, "search service unavailable")
+		return
+	}
+	writeAPIJSON(w, http.StatusOK, response)
+}
+
+func (api uiAPI) handleSearchSettings(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	writeAPIJSON(w, http.StatusOK, api.ragSvc.SearchSettings())
+}
+
+func (api uiAPI) handleChunk(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+
+	var input getChunkInput
+	if !decodeUIJSON(w, r, &input) {
+		return
+	}
+
+	chunkID := strings.TrimSpace(input.ChunkID)
+	if chunkID == "" {
+		writeAPIError(w, http.StatusBadRequest, "chunk_id is required")
+		return
+	}
+
+	response := api.ragSvc.GetChunk(r.Context(), chunkID)
+	if response.Error != "" {
+		writeAPIError(w, http.StatusBadGateway, "chunk service unavailable")
+		return
+	}
+	if !response.Found {
+		writeAPIJSON(w, http.StatusNotFound, response)
+		return
+	}
+	writeAPIJSON(w, http.StatusOK, response)
+}
+
+func (api uiAPI) handleSources(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+
+	scope, ok := normalizeUIScope(w, r.URL.Query().Get("scope"))
+	if !ok {
+		return
+	}
+
+	response, err := api.ragSvc.ListSources(r.Context(), scope)
+	if err != nil {
+		writeAPIError(w, http.StatusBadGateway, "sources service unavailable")
+		return
+	}
+	writeAPIJSON(w, http.StatusOK, response)
+}
+
+func newUIHandler() http.Handler {
+	uiFS, err := fs.Sub(webAssets, "web")
+	if err != nil {
+		panic(fmt.Sprintf("web assets unavailable: %v", err))
+	}
+	return http.FileServer(http.FS(uiFS))
+}
+
+func withUISecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
+	if r.Method == method {
+		return true
+	}
+	w.Header().Set("Allow", method)
+	writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+	return false
+}
+
+func decodeUIJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, defaultMaxUIAPIBodyBytes)
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeAPIError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return false
+		}
+		writeAPIError(w, http.StatusBadRequest, "invalid json body")
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeAPIError(w, http.StatusBadRequest, "request body must contain a single json object")
+		return false
+	}
+	return true
+}
+
+func normalizeUIScope(w http.ResponseWriter, input string) (string, bool) {
+	scope := strings.ToLower(strings.TrimSpace(input))
+	if scope == "" {
+		return "all", true
+	}
+	switch scope {
+	case "all", "docs", "code":
+		return scope, true
+	default:
+		writeAPIError(w, http.StatusBadRequest, "scope must be one of all, docs, code")
+		return "", false
+	}
+}
+
+func validSearchDistance(value float64) bool {
+	return value >= config.MinSearchDistance && value <= config.MaxSearchDistance
+}
+
+func writeAPIError(w http.ResponseWriter, status int, message string) {
+	writeAPIJSON(w, status, map[string]string{"error": message})
+}
+
+func writeAPIJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
@@ -389,10 +593,6 @@ func limitRequestBodyMiddleware(maxBodyBytes int64, next http.Handler) http.Hand
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		next.ServeHTTP(w, r)
 	})
-}
-
-type readinessChecker interface {
-	CheckReadiness(ctx context.Context) observability.ReadinessReport
 }
 
 func componentLogger(logger *slog.Logger, component string) *slog.Logger {

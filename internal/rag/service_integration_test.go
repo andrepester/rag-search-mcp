@@ -134,6 +134,39 @@ func TestServiceReindexAndSearchScopes(t *testing.T) {
 		t.Fatalf("expected all-scope results to include docs and code, got docs=%v code=%v", hasDocs, hasCode)
 	}
 
+	limitedResp, err := svc.Search(ctx, "project", 1, "all", "")
+	if err != nil {
+		t.Fatalf("limited search failed: %v", err)
+	}
+	if len(limitedResp.Matches) != 1 {
+		t.Fatalf("limited search matches = %d, want 1", len(limitedResp.Matches))
+	}
+
+	allRelevantResp, err := svc.Search(ctx, "project", 0, "all", "")
+	if err != nil {
+		t.Fatalf("all relevant search failed: %v", err)
+	}
+	if len(allRelevantResp.Matches) <= len(limitedResp.Matches) {
+		t.Fatalf("all relevant search returned %d matches, want more than limited %d", len(allRelevantResp.Matches), len(limitedResp.Matches))
+	}
+
+	strictDistance := 0.05
+	strictResp, err := svc.SearchWithOptions(ctx, SearchOptions{Query: "project", Scope: "all", MaxDistance: &strictDistance})
+	if err != nil {
+		t.Fatalf("strict threshold search failed: %v", err)
+	}
+	if len(strictResp.Matches) == 0 {
+		t.Fatal("strict threshold search returned no matches")
+	}
+	if len(strictResp.Matches) >= len(allRelevantResp.Matches) {
+		t.Fatalf("strict threshold returned %d matches, want fewer than default %d", len(strictResp.Matches), len(allRelevantResp.Matches))
+	}
+	for _, match := range strictResp.Matches {
+		if match.Distance != nil && *match.Distance > strictDistance {
+			t.Fatalf("strict threshold included distance %f > %f", *match.Distance, strictDistance)
+		}
+	}
+
 	sources, err := svc.ListSources(ctx, "all")
 	if err != nil {
 		t.Fatalf("ListSources() failed: %v", err)
@@ -203,8 +236,11 @@ func (f *fakeChromaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		for i, id := range payload.IDs {
+			distance := float64(len(f.order)) / 10
 			if _, exists := f.records[id]; !exists {
 				f.order = append(f.order, id)
+			} else {
+				distance = f.records[id].Distance
 			}
 			meta := map[string]any{}
 			if i < len(payload.Metadatas) && payload.Metadatas[i] != nil {
@@ -220,7 +256,7 @@ func (f *fakeChromaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if i < len(payload.Embeddings) {
 				embedding = append([]float64(nil), payload.Embeddings[i]...)
 			}
-			f.records[id] = fakeRecord{ID: id, Document: doc, Metadata: meta, Embedding: embedding, Distance: float64(i) / 10}
+			f.records[id] = fakeRecord{ID: id, Document: doc, Metadata: meta, Embedding: embedding, Distance: distance}
 		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]any{"upserted": len(payload.IDs)})

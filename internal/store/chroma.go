@@ -258,6 +258,37 @@ func (c *ChromaClient) ListSourcePaths(ctx context.Context, collectionID string,
 	return out, nil
 }
 
+func (c *ChromaClient) CountRecords(ctx context.Context, collectionID string, where map[string]any) (int, error) {
+	total := 0
+	offset := 0
+	const pageLimit = 500
+
+	for {
+		payload := map[string]any{
+			"where":   where,
+			"include": []string{"metadatas"},
+			"limit":   pageLimit,
+			"offset":  offset,
+		}
+
+		var resp getResponse
+		if err := c.doJSON(ctx, http.MethodPost, c.collectionPath("collections", collectionID, "get"), nil, payload, &resp); err != nil {
+			if isNotFound(err) {
+				break
+			}
+			return 0, err
+		}
+		if len(resp.IDs) == 0 {
+			break
+		}
+
+		total += len(resp.IDs)
+		offset += len(resp.IDs)
+	}
+
+	return total, nil
+}
+
 func (c *ChromaClient) DeleteWhere(ctx context.Context, collectionID string, where map[string]any) error {
 	payload := map[string]any{"where": where}
 	return c.doJSON(ctx, http.MethodPost, c.collectionPath("collections", collectionID, "delete"), nil, payload, nil)

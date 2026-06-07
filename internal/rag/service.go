@@ -37,10 +37,27 @@ type SearchMatch struct {
 }
 
 type SearchResponse struct {
-	Query        string        `json:"query"`
-	ScopeUsed    string        `json:"scope_used"`
-	SourceFilter string        `json:"source_filter,omitempty"`
-	Matches      []SearchMatch `json:"matches"`
+	Query              string        `json:"query"`
+	ScopeUsed          string        `json:"scope_used"`
+	SourceFilter       string        `json:"source_filter,omitempty"`
+	MaxDistance        float64       `json:"max_distance"`
+	Matches            []SearchMatch `json:"matches"`
+	OmittedWeakMatches int           `json:"omitted_weak_matches,omitempty"`
+}
+
+type SearchOptions struct {
+	Query        string
+	TopK         int
+	Scope        string
+	SourceFilter string
+	MaxDistance  *float64
+}
+
+type SearchSettings struct {
+	MaxDistance    float64 `json:"max_distance"`
+	MinDistance    float64 `json:"min_distance"`
+	MaxDistanceCap float64 `json:"max_distance_cap"`
+	DistanceStep   float64 `json:"distance_step"`
 }
 
 type ListSourcesResponse struct {
@@ -60,6 +77,7 @@ const (
 	collectionInitTimeout    = 45 * time.Second
 	collectionInitMinBackoff = 250 * time.Millisecond
 	collectionInitMaxBackoff = 3 * time.Second
+	searchDistanceStep       = 0.01
 )
 
 func NewService(cfg *config.Config, ingestSvc *ingest.Service, ollamaClient *ollama.Client, chromaClient *store.ChromaClient) (*Service, error) {
@@ -145,23 +163,41 @@ func (s *Service) ReindexStatus(ctx context.Context) (reindexjob.Status, error) 
 }
 
 func (s *Service) Search(ctx context.Context, query string, topK int, scope string, sourceFilter string) (SearchResponse, error) {
+	return s.SearchWithOptions(ctx, SearchOptions{
+		Query:        query,
+		TopK:         topK,
+		Scope:        scope,
+		SourceFilter: sourceFilter,
+	})
+}
+
+func (s *Service) SearchWithOptions(ctx context.Context, options SearchOptions) (SearchResponse, error) {
+	query := options.Query
 	query = strings.TrimSpace(query)
+	scopeUsed := normalizeScope(options.Scope, s.Config.DefaultScope)
+	sourceFilter := strings.TrimSpace(options.SourceFilter)
+	if options.MaxDistance != nil && !validMaxSearchDistance(*options.MaxDistance) {
+		return SearchResponse{}, fmt.Errorf("max_distance must be between %.2f and %.2f", config.MinSearchDistance, config.MaxSearchDistance)
+	}
+	maxDistance := s.effectiveMaxSearchDistance(options.MaxDistance)
+
 	if query == "" {
-		return SearchResponse{Query: query, ScopeUsed: normalizeScope(scope, s.Config.DefaultScope), Matches: []SearchMatch{}}, nil
+		return SearchResponse{Query: query, ScopeUsed: scopeUsed, SourceFilter: sourceFilter, MaxDistance: maxDistance, Matches: []SearchMatch{}}, nil
+	}
+	if looksLikeNonsenseQuery(query) {
+		return SearchResponse{Query: query, ScopeUsed: scopeUsed, SourceFilter: sourceFilter, MaxDistance: maxDistance, Matches: []SearchMatch{}}, nil
 	}
 
-	scopeUsed := normalizeScope(scope, s.Config.DefaultScope)
 	activeGeneration, err := s.activeGeneration()
 	if err != nil {
 		return SearchResponse{}, err
 	}
 	if activeGeneration == "" {
-		return SearchResponse{Query: query, ScopeUsed: scopeUsed, SourceFilter: sourceFilter, Matches: []SearchMatch{}}, nil
+		return SearchResponse{Query: query, ScopeUsed: scopeUsed, SourceFilter: sourceFilter, MaxDistance: maxDistance, Matches: []SearchMatch{}}, nil
 	}
-	if topK <= 0 {
-		topK = 5
-	}
-	if topK > s.Config.MaxTopK {
+	topK := options.TopK
+	limitResults := topK > 0
+	if limitResults && topK > s.Config.MaxTopK {
 		topK = s.Config.MaxTopK
 	}
 
@@ -170,7 +206,7 @@ func (s *Service) Search(ctx context.Context, query string, topK int, scope stri
 		return SearchResponse{}, err
 	}
 	if len(embeddings) == 0 {
-		return SearchResponse{Query: query, ScopeUsed: scopeUsed, SourceFilter: sourceFilter, Matches: []SearchMatch{}}, nil
+		return SearchResponse{Query: query, ScopeUsed: scopeUsed, SourceFilter: sourceFilter, MaxDistance: maxDistance, Matches: []SearchMatch{}}, nil
 	}
 
 	where := map[string]any{"index_generation": activeGeneration}
@@ -178,12 +214,28 @@ func (s *Service) Search(ctx context.Context, query string, topK int, scope stri
 		where = store.WhereAnd(where, map[string]any{"scope": scopeUsed})
 	}
 
-	candidates, err := s.Chroma.Query(ctx, s.getCollectionID(), embeddings[0], min(topK*8, max(20, s.Config.MaxTopK)), where)
+	candidateLimit := min(topK*8, max(20, s.Config.MaxTopK))
+	if !limitResults {
+		candidateLimit, err = s.Chroma.CountRecords(ctx, s.getCollectionID(), where)
+		if err != nil {
+			return SearchResponse{}, err
+		}
+		if candidateLimit == 0 {
+			return SearchResponse{Query: query, ScopeUsed: scopeUsed, SourceFilter: sourceFilter, MaxDistance: maxDistance, Matches: []SearchMatch{}}, nil
+		}
+	}
+
+	candidates, err := s.Chroma.Query(ctx, s.getCollectionID(), embeddings[0], candidateLimit, where)
 	if err != nil {
 		return SearchResponse{}, err
 	}
 
-	matches := make([]SearchMatch, 0, topK)
+	matchCap := len(candidates)
+	if limitResults && topK < matchCap {
+		matchCap = topK
+	}
+	matches := make([]SearchMatch, 0, matchCap)
+	omittedWeakMatches := 0
 	for _, candidate := range candidates {
 		sourcePath, _ := candidate.Metadata["source_path"].(string)
 		candidateScope, _ := candidate.Metadata["scope"].(string)
@@ -192,6 +244,10 @@ func (s *Service) Search(ctx context.Context, query string, topK int, scope stri
 			continue
 		}
 		if scopeUsed != "all" && candidateScope != scopeUsed {
+			continue
+		}
+		if !isRelevantDistance(candidate.Distance, maxDistance) {
+			omittedWeakMatches++
 			continue
 		}
 
@@ -211,17 +267,28 @@ func (s *Service) Search(ctx context.Context, query string, topK int, scope stri
 			Distance:   candidate.Distance,
 			Text:       candidate.Document,
 		})
-		if len(matches) >= topK {
+		if limitResults && len(matches) >= topK {
 			break
 		}
 	}
 
 	return SearchResponse{
-		Query:        query,
-		ScopeUsed:    scopeUsed,
-		SourceFilter: sourceFilter,
-		Matches:      matches,
+		Query:              query,
+		ScopeUsed:          scopeUsed,
+		SourceFilter:       sourceFilter,
+		MaxDistance:        maxDistance,
+		Matches:            matches,
+		OmittedWeakMatches: omittedWeakMatches,
 	}, nil
+}
+
+func (s *Service) SearchSettings() SearchSettings {
+	return SearchSettings{
+		MaxDistance:    s.effectiveMaxSearchDistance(nil),
+		MinDistance:    config.MinSearchDistance,
+		MaxDistanceCap: config.MaxSearchDistance,
+		DistanceStep:   searchDistanceStep,
+	}
 }
 
 func (s *Service) GetChunk(ctx context.Context, chunkID string) ChunkResponse {
@@ -343,6 +410,48 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (s *Service) effectiveMaxSearchDistance(override *float64) float64 {
+	if override != nil {
+		return *override
+	}
+	if s.Config != nil && s.Config.MaxSearchDistance >= config.MinSearchDistance {
+		return s.Config.MaxSearchDistance
+	}
+	return config.DefaultMaxSearchDistance
+}
+
+func validMaxSearchDistance(value float64) bool {
+	return value >= config.MinSearchDistance && value <= config.MaxSearchDistance
+}
+
+func isRelevantDistance(distance *float64, maxDistance float64) bool {
+	return distance == nil || *distance <= maxDistance
+}
+
+func looksLikeNonsenseQuery(query string) bool {
+	tokens := strings.Fields(query)
+	if len(tokens) != 1 {
+		return false
+	}
+
+	token := strings.ToLower(strings.Trim(tokens[0], " \t\r\n.,;:!?()[]{}'\"`"))
+	if len(token) < 8 {
+		return false
+	}
+
+	hasLetter := false
+	for _, r := range token {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+		hasLetter = true
+		if strings.ContainsRune("aeiou", r) {
+			return false
+		}
+	}
+	return hasLetter
 }
 
 func (s *Service) getCollectionID() string {
