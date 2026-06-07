@@ -219,13 +219,17 @@ running job. CLI duplicate starts exit with code `2`; MCP duplicate starts
 return `ok=false`, `status=blocked`, and `error=already_running`.
 
 `make index` displays an indeterminate progress bar while the containerized
-indexer is running, then prints the `rag-index` output when the run exits.
-Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode resets the
-configured Chroma collection before rebuilding, so unchanged sources are embedded
-again and old index records are not reused. It does not remove Ollama models or
-mounted source data from `HOST_DOCS_DIR` or `HOST_CODE_DIR`. Because it resets
-the active collection before rebuilding, searches may return no current index
-results until the fresh run completes.
+indexer is running, then prints a compact human-readable summary by default.
+Use `make index OUTPUT=logs` to print the raw structured `rag-index` runtime
+logs, or `make index OUTPUT=json` to print one machine-readable result object
+for automation. Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode
+resets the configured Chroma collection before rebuilding, so unchanged sources
+are embedded again and old index records are not reused. It does not remove
+Ollama models or mounted source data from `HOST_DOCS_DIR` or `HOST_CODE_DIR`.
+Because it resets the active collection before rebuilding, searches may return
+no current index results until the fresh run completes.
+After changing `rag-index` code, run `make up` once before `make index` so the
+running `rag-mcp` container contains the current binary.
 
 The `rag_reindex_status` tool returns status JSON with the current `active_job`
 when a run is active, the terminal `last_run` record, and the
@@ -246,10 +250,12 @@ The reinstall's index step automatically runs with `FRESH_INDEX=1`.
 
 ### Observability baseline
 
-`rag-mcp` and `rag-index` write structured runtime logs to stdout. Docker Compose
-collects stdout and stderr from all containers, so `make logs` shows the structured
-runtime logs together with Chroma and Ollama container output. Chroma and Ollama log
-formats are owned by those images and are not normalized by this project.
+`rag-mcp` and `rag-index --output=logs` write structured runtime logs to stdout.
+Docker Compose collects stdout and stderr from all containers, so `make logs`
+shows the structured runtime logs together with Chroma and Ollama container
+output. Chroma and Ollama log formats are owned by those images and are not
+normalized by this project. `RAG_LOG_FORMAT` controls runtime log rendering only;
+it is separate from the `make index OUTPUT=human|json|logs` CLI presentation mode.
 
 Runtime logs are JSON by default and use stable event names:
 
