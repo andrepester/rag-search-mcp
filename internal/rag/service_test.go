@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/andrepester/rag-search-mcp/internal/config"
 )
 
 func TestNormalizeScope(t *testing.T) {
@@ -28,6 +30,55 @@ func TestNormalizeScope(t *testing.T) {
 			got := normalizeScope(tt.input, tt.fallback)
 			if got != tt.want {
 				t.Fatalf("normalizeScope() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsRelevantDistance(t *testing.T) {
+	maxDistance := config.DefaultMaxSearchDistance
+	inside := maxDistance
+	weak := maxDistance + 0.0001
+
+	if !isRelevantDistance(nil, maxDistance) {
+		t.Fatal("nil distance should be treated as relevant")
+	}
+	if !isRelevantDistance(&inside, maxDistance) {
+		t.Fatalf("distance %f should be relevant", inside)
+	}
+	if isRelevantDistance(&weak, maxDistance) {
+		t.Fatalf("distance %f should be filtered as weak", weak)
+	}
+}
+
+func TestSearchWithOptionsRejectsInvalidMaxDistance(t *testing.T) {
+	tooHigh := config.MaxSearchDistance + 0.01
+	svc := &Service{Config: &config.Config{DefaultScope: "all"}}
+
+	if _, err := svc.SearchWithOptions(context.Background(), SearchOptions{Query: "install", MaxDistance: &tooHigh}); err == nil {
+		t.Fatal("expected invalid max_distance error")
+	}
+}
+
+func TestLooksLikeNonsenseQuery(t *testing.T) {
+	tests := []struct {
+		query string
+		want  bool
+	}{
+		{query: "fdsjkhfdjks", want: true},
+		{query: "MCP", want: false},
+		{query: "RAG", want: false},
+		{query: "lynx", want: false},
+		{query: "arctic fox", want: false},
+		{query: "rhythm", want: false},
+		{query: "installation", want: false},
+		{query: "abc123xyz", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			if got := looksLikeNonsenseQuery(tt.query); got != tt.want {
+				t.Fatalf("looksLikeNonsenseQuery(%q) = %v, want %v", tt.query, got, tt.want)
 			}
 		})
 	}

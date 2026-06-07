@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RAG Search</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>RAG Search</h1>
+        </div>
+      </header>
+
+      <form class="search-form" id="search-form">
+        <div class="query-field">
+          <span class="field-label-row" tabindex="0" aria-describedby="search-help">
+            <label class="field-label" for="query">Search</label>
+            <span class="help-tooltip" id="search-help" role="tooltip">Enter the words or question to look for. Behind the scenes this is the query that gets embedded for semantic search.</span>
+          </span>
+          <input id="query" name="query" type="search" autocomplete="off" spellcheck="false" aria-describedby="search-help">
+        </div>
+
+        <div class="scope-field">
+          <span class="field-label-row" tabindex="0" aria-describedby="scope-help">
+            <span class="field-label" id="scope-label">Scope</span>
+            <span class="help-tooltip" id="scope-help" role="tooltip">Choose where to search: all indexed content, docs only, or code only. Behind the scenes this is the scope parameter.</span>
+          </span>
+          <fieldset class="scope-control" aria-labelledby="scope-label">
+            <legend class="sr-only">Scope</legend>
+            <label><input type="radio" name="scope" value="all" checked><span>All</span></label>
+            <label><input type="radio" name="scope" value="docs"><span>Docs</span></label>
+            <label><input type="radio" name="scope" value="code"><span>Code</span></label>
+          </fieldset>
+        </div>
+
+        <div class="source-field">
+          <span class="field-label-row" tabindex="0" aria-describedby="directory-help">
+            <label class="field-label" for="source-filter">Directory</label>
+            <span class="help-tooltip" id="directory-help" role="tooltip">Limit results to an indexed folder or file path. Behind the scenes this is the source filter.</span>
+          </span>
+          <span class="source-picker">
+            <input id="source-filter" name="source_filter" type="search" autocomplete="off" spellcheck="false" readonly placeholder="All directories" aria-describedby="directory-help">
+            <button class="secondary-button" id="source-browser-open" type="button" aria-haspopup="dialog">Browse</button>
+          </span>
+        </div>
+
+        <div class="relevance-field">
+          <span class="field-label-row" tabindex="0" aria-describedby="relevance-help">
+            <span class="field-label" id="relevance-label">Relevance</span>
+            <span class="help-tooltip" id="relevance-help" role="tooltip">Normal uses max_distance 0.50 and keeps balanced semantic matches. Strict uses max_distance 0.40 and hides more weak matches. Lower distance is stricter.</span>
+          </span>
+          <fieldset class="relevance-control" aria-labelledby="relevance-label" aria-describedby="relevance-help">
+            <legend class="sr-only">Relevance</legend>
+            <label><input type="radio" name="max_distance" value="0.40"><span>Strict</span></label>
+            <label><input type="radio" name="max_distance" value="0.50" checked><span>Normal</span></label>
+          </fieldset>
+        </div>
+
+        <button class="primary-button" type="submit">Search</button>
+      </form>
+
+      <section class="workspace" aria-label="Search workspace">
+        <section class="results-pane" aria-labelledby="results-title">
+          <div class="pane-head">
+            <h2 id="results-title">Results</h2>
+            <span class="result-summary" aria-label="Search result summary">
+              <span id="result-count">0 shown</span>
+              <span class="result-hidden" id="result-hidden" tabindex="0" aria-describedby="result-hidden-help" hidden>
+                <span id="result-hidden-count">0 hidden</span>
+                <span class="result-hidden-tooltip" id="result-hidden-help" role="tooltip">Nearest-neighbor matches hidden because their distance is above the selected relevance threshold.</span>
+              </span>
+            </span>
+          </div>
+          <div class="state-message" id="results-state">Run a search to inspect indexed content.</div>
+          <ol class="results-list" id="results-list"></ol>
+        </section>
+
+        <section class="detail-pane" aria-labelledby="detail-title">
+          <div class="pane-head">
+            <h2 id="detail-title">Chunk</h2>
+            <span id="detail-scope"></span>
+          </div>
+          <div class="state-message" id="detail-state">Select a result to open the full chunk.</div>
+          <article class="chunk-detail" id="chunk-detail" hidden>
+            <dl class="metadata-grid" id="chunk-metadata"></dl>
+            <pre id="chunk-text"></pre>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <dialog class="source-modal" id="source-modal" aria-labelledby="source-modal-title">
+      <div class="source-modal-card">
+        <header class="source-modal-head">
+          <div>
+            <p class="eyebrow">Indexed directories</p>
+            <h2 id="source-modal-title">Directory Tree</h2>
+          </div>
+          <button class="icon-button" id="source-browser-close" type="button" aria-label="Close directory browser">x</button>
+        </header>
+        <div class="source-modal-body">
+          <div class="state-message source-tree-state" id="source-tree-state">Loading indexed directories...</div>
+          <div class="source-tree" id="source-tree" role="tree" aria-label="Indexed directory tree"></div>
+        </div>
+        <footer class="source-modal-foot">
+          <div class="selected-source" id="selected-source">All directories</div>
+          <div class="source-modal-actions">
+            <button class="secondary-button" id="source-clear" type="button">Clear</button>
+            <button class="primary-button" id="source-apply" type="button">Apply</button>
+          </div>
+        </footer>
+      </div>
+    </dialog>
+    <script src="app.js" defer></script>
+  </body>
+</html>

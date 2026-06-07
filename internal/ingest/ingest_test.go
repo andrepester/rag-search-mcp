@@ -172,9 +172,65 @@ func TestReindexBuildsNewGenerationsAndReusesUnchangedSources(t *testing.T) {
 	}
 }
 
+func TestReindexSplitsChangedSourceIntoEmbedBatches(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+
+	var builder strings.Builder
+	for i := 0; i < embedBatchSize+5; i++ {
+		_, _ = fmt.Fprintf(&builder, "biology demo sentence %02d with habitat adaptation ecology. ", i)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "many.md"), []byte(builder.String()), 0o644); err != nil {
+		t.Fatalf("write many chunks doc: %v", err)
+	}
+
+	chromaBackend := newIngestChromaBackend()
+	chromaServer := httptest.NewServer(chromaBackend)
+	defer chromaServer.Close()
+
+	ollamaBackend := &ingestOllamaBackend{}
+	ollamaServer := httptest.NewServer(ollamaBackend)
+	defer ollamaServer.Close()
+
+	cfg := &config.Config{
+		DocsDir:          docsDir,
+		CodeDir:          filepath.Join(root, "missing-code"),
+		CollectionName:   "rag",
+		IndexStateDir:    filepath.Join(root, "index-state"),
+		EmbedModel:       "test-embed",
+		ChunkSize:        40,
+		ChunkOverlap:     0,
+		EnableCodeIngest: false,
+	}
+	svc := &Service{
+		Config: cfg,
+		Ollama: ollama.New(ollamaServer.URL),
+		Chroma: store.NewChromaClient(chromaServer.URL, "default_tenant", "default_database"),
+	}
+
+	stats, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("Reindex() failed: %v", err)
+	}
+	if stats.EmbeddedChunks <= embedBatchSize {
+		t.Fatalf("EmbeddedChunks = %d, want more than batch size %d", stats.EmbeddedChunks, embedBatchSize)
+	}
+	if got := ollamaBackend.calls(); got < 2 {
+		t.Fatalf("embedding calls = %d, want split batches", got)
+	}
+	if got := ollamaBackend.maxBatchSize(); got > embedBatchSize {
+		t.Fatalf("max embedding batch size = %d, want <= %d", got, embedBatchSize)
+	}
+}
+
 type ingestOllamaBackend struct {
 	mu        sync.Mutex
 	callCount int
+	maxBatch  int
 }
 
 func (b *ingestOllamaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +247,9 @@ func (b *ingestOllamaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	b.mu.Lock()
 	b.callCount++
+	if len(req.Input) > b.maxBatch {
+		b.maxBatch = len(req.Input)
+	}
 	b.mu.Unlock()
 
 	embeddings := make([][]float64, 0, len(req.Input))
@@ -204,6 +263,12 @@ func (b *ingestOllamaBackend) calls() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.callCount
+}
+
+func (b *ingestOllamaBackend) maxBatchSize() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.maxBatch
 }
 
 type ingestChromaBackend struct {

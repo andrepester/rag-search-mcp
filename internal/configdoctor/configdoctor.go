@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/andrepester/rag-search-mcp/internal/config"
 )
 
 type Severity string
@@ -79,25 +81,26 @@ type valueSource struct {
 var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var defaults = map[string]string{
-	"RAG_HTTP_HOST":          "127.0.0.1",
-	"RAG_HTTP_PORT":          "8765",
-	"OLLAMA_PORT":            "11434",
-	"HOST_DOCS_DIR":          "./data/docs",
-	"HOST_CODE_DIR":          "./data/code",
-	"HOST_INDEX_DIR":         "./data/index",
-	"HOST_MODELS_DIR":        "./data/models",
-	"OLLAMA_HOST":            "http://ollama:11434",
-	"EMBED_MODEL":            "nomic-embed-text",
-	"RAG_ENABLE_CODE_INGEST": "true",
-	"RAG_CHROMA_TENANT":      "default_tenant",
-	"RAG_CHROMA_DATABASE":    "default_database",
-	"RAG_COLLECTION_NAME":    "rag",
-	"RAG_SCOPE_DEFAULT":      "all",
-	"RAG_CHUNK_SIZE":         "1200",
-	"RAG_CHUNK_OVERLAP":      "200",
-	"RAG_MAX_TOP_K":          "50",
-	"RAG_LOG_LEVEL":          "info",
-	"RAG_LOG_FORMAT":         "json",
+	"RAG_HTTP_HOST":           "127.0.0.1",
+	"RAG_HTTP_PORT":           "8765",
+	"OLLAMA_PORT":             "11434",
+	"HOST_DOCS_DIR":           "./data/docs",
+	"HOST_CODE_DIR":           "./data/code",
+	"HOST_INDEX_DIR":          "./data/index",
+	"HOST_MODELS_DIR":         "./data/models",
+	"OLLAMA_HOST":             "http://ollama:11434",
+	"EMBED_MODEL":             "nomic-embed-text",
+	"RAG_ENABLE_CODE_INGEST":  "true",
+	"RAG_CHROMA_TENANT":       "default_tenant",
+	"RAG_CHROMA_DATABASE":     "default_database",
+	"RAG_COLLECTION_NAME":     "rag",
+	"RAG_SCOPE_DEFAULT":       "all",
+	"RAG_CHUNK_SIZE":          "1200",
+	"RAG_CHUNK_OVERLAP":       "200",
+	"RAG_MAX_TOP_K":           "50",
+	"RAG_MAX_SEARCH_DISTANCE": "0.50",
+	"RAG_LOG_LEVEL":           "info",
+	"RAG_LOG_FORMAT":          "json",
 }
 
 var hostPathKeys = []string{
@@ -194,6 +197,7 @@ func (c *checker) checkRuntimeValues() {
 		c.add(SeverityError, "CHUNK_OVERLAP_RANGE", fmt.Sprintf("RAG_CHUNK_OVERLAP resolves to %d, which is not smaller than RAG_CHUNK_SIZE %d.", chunkOverlap, chunkSize), "Set RAG_CHUNK_OVERLAP to a non-negative value smaller than RAG_CHUNK_SIZE.")
 	}
 	c.checkPositiveInt("RAG_MAX_TOP_K")
+	c.checkSearchDistance()
 	c.checkHTTPHost()
 	c.checkBool("RAG_ENABLE_CODE_INGEST")
 	c.checkOneOf("RAG_SCOPE_DEFAULT", []string{"all", "docs", "code"})
@@ -435,6 +439,19 @@ func (c *checker) checkNonNegativeInt(key string) int {
 		return 0
 	}
 	return parsed
+}
+
+func (c *checker) checkSearchDistance() {
+	key := "RAG_MAX_SEARCH_DISTANCE"
+	value := c.effective(key).value
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		c.add(SeverityError, key+"_NUMBER", fmt.Sprintf("%s resolves to %q, which is not a number.", key, value), fmt.Sprintf("Set %s to a number between %.2f and %.2f.", key, config.MinSearchDistance, config.MaxSearchDistance))
+		return
+	}
+	if parsed < config.MinSearchDistance || parsed > config.MaxSearchDistance {
+		c.add(SeverityError, key+"_RANGE", fmt.Sprintf("%s resolves to %.2f, outside the allowed range.", key, parsed), fmt.Sprintf("Set %s to a number between %.2f and %.2f.", key, config.MinSearchDistance, config.MaxSearchDistance))
+	}
 }
 
 func (c *checker) checkBool(key string) {

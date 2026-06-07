@@ -138,6 +138,7 @@ func newConfigDoctorCLIRepo(t *testing.T) string {
 		"RAG_CHUNK_SIZE=1200",
 		"RAG_CHUNK_OVERLAP=200",
 		"RAG_MAX_TOP_K=50",
+		"RAG_MAX_SEARCH_DISTANCE=0.50",
 		"",
 	}, "\n"))
 	writeCLIFile(t, filepath.Join(repoRoot, "docker", "docker-compose.yml"), 0o644, `services:

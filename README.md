@@ -117,6 +117,39 @@ The selected docs and code paths are written to `.env` before Docker starts.
 
 ## Usage
 
+### Web interface
+
+After `make up` or `make install`, the browser UI is served by the existing
+`rag-mcp` HTTP process and Docker port. No separate frontend server or Node build
+is required.
+
+```text
+http://127.0.0.1:${RAG_HTTP_PORT}/
+```
+
+With the default port, the UI is available at:
+
+```text
+http://127.0.0.1:8765/
+```
+
+The UI is also available at `/ui/` as a compatibility alias. It supports search across
+`scope=all|docs|code`, optional directory filtering, strict/normal relevance
+modes, result inspection, and full chunk details. The bundled UI uses
+`max_distance=0.40` for strict mode and `max_distance=0.50` for normal mode. It
+shows every match that passes the selected semantic distance threshold. It uses
+internal same-origin JSON routes over the same `rag.Service` logic as the MCP
+tools:
+
+- `POST /api/search`
+- `GET /api/search-settings`
+- `POST /api/chunk`
+- `GET /api/sources?scope=all|docs|code`
+
+These routes are for the bundled browser UI. They are not a separate public REST
+API product, do not enable permissive CORS, and do not add login or token
+protection in v1.
+
 ### Exposed MCP tools
 
 After the stack is running, configure an MCP client to use the remote HTTP
@@ -291,7 +324,10 @@ Available metrics:
 
 CLI and shell commands keep their automation-friendly stream semantics: normal
 reports go to stdout, and command errors go to stderr. The structured runtime log
-baseline applies to `rag-mcp` and `rag-index`.
+baseline applies to `rag-mcp` and `rag-index`. Browser UI and internal UI API
+handlers follow the same privacy boundary: they must not write queries, chunk
+text, embeddings, source snippets, or request bodies to logs, metrics, or
+readiness responses.
 
 ## Configuration
 
@@ -301,6 +337,10 @@ baseline applies to `rag-mcp` and `rag-index`.
 - `LAN-only` is explicit opt-in and not enabled by default
 - WAN/Internet exposure is out of scope in v1
 - VPN/overlay access is out of scope in v1
+- The web UI runs in the same `rag-mcp` process and on the same Docker-published
+  port as `/mcp`
+- Browser calls are same-origin; there is no permissive CORS default
+- v1 does not provide login, users, tenants, or token protection for the UI
 
 Non-loopback access requires additional controls as defined in the ADR and threat model.
 To opt into LAN-only operation, set `RAG_HTTP_HOST` to an approved LAN interface
@@ -326,7 +366,8 @@ boundary.
 | `RAG_SCOPE_DEFAULT` | `all` | Default search scope |
 | `RAG_CHUNK_SIZE` | `1200` | Chunk size in characters |
 | `RAG_CHUNK_OVERLAP` | `200` | Chunk overlap in characters |
-| `RAG_MAX_TOP_K` | `50` | Upper bound for search `top_k` |
+| `RAG_MAX_TOP_K` | `50` | Upper bound for explicit MCP/API `top_k`; the bundled UI omits `top_k` and shows all relevant matches |
+| `RAG_MAX_SEARCH_DISTANCE` | `0.50` | Default semantic distance threshold for search relevance; lower is stricter, higher shows more matches |
 | `RAG_LOG_LEVEL` | `info` | Runtime log level: `debug`, `info`, `warn`, or `error` |
 | `RAG_LOG_FORMAT` | `json` | Runtime log format for `rag-mcp` and `rag-index`: `json` or `text` |
 | `OLLAMA_HOST` | `http://ollama:11434` | Embedding endpoint used by `rag-mcp` |
@@ -541,4 +582,5 @@ For an index-only reset without deleting persisted Ollama models, use `make inde
 Not by default. v1 is localhost-first. For explicit LAN-only opt-in, set
 `RAG_HTTP_HOST` to an approved LAN interface address, review firewall or local
 network controls, and keep WAN/VPN/public exposure out of scope unless a new ADR and
-threat model cover that operating mode.
+threat model cover that operating mode. This applies to `/mcp`, `/`, `/ui/`, and
+the internal same-origin UI API routes.

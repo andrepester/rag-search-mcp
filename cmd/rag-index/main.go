@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	reindexInitTimeout    = 45 * time.Second
+	reindexTimeout        = 5 * time.Minute
 	reindexInitMinBackoff = 250 * time.Millisecond
 	reindexInitMaxBackoff = 3 * time.Second
 	exitReindexBusy       = 2
@@ -98,7 +98,7 @@ func runReindex(ctx context.Context, logger *slog.Logger) error {
 	chromaClient := store.NewChromaClient(cfg.ChromaURL, cfg.ChromaTenant, cfg.ChromaDatabase)
 	ingestSvc := newIndexer(&cfg, ollamaClient, chromaClient)
 
-	retryCtx, cancel := context.WithTimeout(ctx, reindexInitTimeout)
+	retryCtx, cancel := context.WithTimeout(ctx, reindexTimeout)
 	defer cancel()
 
 	run, err := reindexjob.New(cfg.IndexStateDir).Start(ctx, reindexjob.TriggerCLI)

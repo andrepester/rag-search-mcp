@@ -12,6 +12,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("RAG_SCOPE_DEFAULT", "all")
 	t.Setenv("RAG_CHUNK_SIZE", "500")
 	t.Setenv("RAG_CHUNK_OVERLAP", "50")
+	t.Setenv("RAG_MAX_SEARCH_DISTANCE", "0.35")
 	t.Setenv("RAG_ENABLE_CODE_INGEST", "false")
 	t.Setenv("FRESH_INDEX", "true")
 
@@ -25,6 +26,9 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	}
 	if cfg.ChunkOverlap != 50 {
 		t.Fatalf("ChunkOverlap = %d, want 50", cfg.ChunkOverlap)
+	}
+	if cfg.MaxSearchDistance != 0.35 {
+		t.Fatalf("MaxSearchDistance = %f, want 0.35", cfg.MaxSearchDistance)
 	}
 	if cfg.EnableCodeIngest {
 		t.Fatal("EnableCodeIngest = true, want false")
@@ -50,7 +54,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 }
 
 func TestLoadValidation(t *testing.T) {
-	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT"} {
+	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_MAX_SEARCH_DISTANCE", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT"} {
 		_ = os.Unsetenv(key)
 	}
 
@@ -85,6 +89,17 @@ func TestLoadValidation(t *testing.T) {
 	}
 
 	t.Setenv("RAG_MAX_TOP_K", "50")
+	t.Setenv("RAG_MAX_SEARCH_DISTANCE", "not-a-number")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for max search distance number")
+	}
+
+	t.Setenv("RAG_MAX_SEARCH_DISTANCE", "2.01")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for max search distance range")
+	}
+
+	t.Setenv("RAG_MAX_SEARCH_DISTANCE", "0.50")
 	t.Setenv("RAG_ENABLE_CODE_INGEST", "not-bool")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected validation error for bool")
