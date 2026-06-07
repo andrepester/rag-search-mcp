@@ -10,6 +10,15 @@ fresh_index=$(parse_bool_01 "$fresh_index_raw" 0) || {
 	printf '%s\n' 'FRESH_INDEX must be one of: 0,1,true,false,yes,no' >&2
 	exit 2
 }
+output=${OUTPUT:-human}
+case "$output" in
+	human|json|logs)
+		;;
+	*)
+		printf '%s\n' 'OUTPUT must be one of: human,json,logs' >&2
+		exit 2
+		;;
+esac
 
 docker compose --project-directory "$compose_project_dir" -f "$compose_file" config >/dev/null
 
@@ -82,7 +91,7 @@ if [ "$fresh_index" -eq 1 ]; then
 	printf '%s\n' 'index: FRESH_INDEX=1 requested; resetting the configured Chroma collection before rebuild.' >&2
 fi
 
-docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T -e FRESH_INDEX="$fresh_index" rag-mcp /app/rag-index >"$log_file" 2>&1 &
+docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T -e FRESH_INDEX="$fresh_index" rag-mcp /app/rag-index --output "$output" >"$log_file" 2>&1 &
 index_pid=$!
 
 if [ "$supports_progress" -eq 1 ]; then
@@ -107,11 +116,16 @@ fi
 clear_progress_line
 
 if [ "$index_status" -eq 0 ]; then
-	printf '%s\n' 'index: complete' >&2
 	if [ -s "$log_file" ]; then
 		cat "$log_file"
 	fi
 	exit 0
+fi
+
+if [ -s "$log_file" ] && grep -F 'flag provided but not defined: -output' "$log_file" >/dev/null 2>&1; then
+	printf '%s\n' 'index: running rag-mcp container does not support OUTPUT modes; it was built before this checkout.' >&2
+	printf '%s\n' 'index: rebuild the stack with make up, then rerun make index.' >&2
+	exit 1
 fi
 
 printf 'index: failed with exit code %s\n' "$index_status" >&2
