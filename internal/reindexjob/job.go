@@ -44,27 +44,35 @@ type Status struct {
 	Version          int           `json:"version"`
 	Status           string        `json:"status"`
 	ActiveJob        *Job          `json:"active_job,omitempty"`
+	Progress         *Progress     `json:"progress,omitempty"`
 	LastRun          *RunRecord    `json:"last_run,omitempty"`
 	LastBlockedStart *BlockedStart `json:"last_blocked_start,omitempty"`
 	UpdatedAt        string        `json:"updated_at,omitempty"`
 }
 
+type Progress struct {
+	TotalDocuments     int `json:"total_documents"`
+	ProcessedDocuments int `json:"processed_documents"`
+}
+
 type RunRecord struct {
-	Status         string `json:"status"`
-	Job            Job    `json:"job"`
-	CompletedAt    string `json:"completed_at"`
-	DurationMillis int64  `json:"duration_ms"`
-	Files          int    `json:"files,omitempty"`
-	Chunks         int    `json:"chunks,omitempty"`
-	CodeFiles      int    `json:"code_files,omitempty"`
-	DocsFiles      int    `json:"docs_files,omitempty"`
-	ChangedFiles   int    `json:"changed_files,omitempty"`
-	DeletedFiles   int    `json:"deleted_files,omitempty"`
-	ReusedFiles    int    `json:"reused_files,omitempty"`
-	EmbeddedChunks int    `json:"embedded_chunks,omitempty"`
-	ReusedChunks   int    `json:"reused_chunks,omitempty"`
-	Generation     string `json:"generation,omitempty"`
-	Error          string `json:"error,omitempty"`
+	Status             string `json:"status"`
+	Job                Job    `json:"job"`
+	CompletedAt        string `json:"completed_at"`
+	DurationMillis     int64  `json:"duration_ms"`
+	TotalDocuments     int    `json:"total_documents"`
+	ProcessedDocuments int    `json:"processed_documents"`
+	Files              int    `json:"files,omitempty"`
+	Chunks             int    `json:"chunks,omitempty"`
+	CodeFiles          int    `json:"code_files,omitempty"`
+	DocsFiles          int    `json:"docs_files,omitempty"`
+	ChangedFiles       int    `json:"changed_files,omitempty"`
+	DeletedFiles       int    `json:"deleted_files,omitempty"`
+	ReusedFiles        int    `json:"reused_files,omitempty"`
+	EmbeddedChunks     int    `json:"embedded_chunks,omitempty"`
+	ReusedChunks       int    `json:"reused_chunks,omitempty"`
+	Generation         string `json:"generation,omitempty"`
+	Error              string `json:"error,omitempty"`
 }
 
 type BlockedStart struct {
@@ -127,6 +135,10 @@ func (r *Run) Finish(_ context.Context, stats ingest.Stats, runErr error) (finis
 
 	finishErr = r.coord.recordFinished(r.Job, stats, runErr)
 	return finishErr
+}
+
+func (r *Run) UpdateProgress(_ context.Context, progress Progress) error {
+	return r.coord.recordProgress(r.Job, progress)
 }
 
 func (c *Coordinator) Status(_ context.Context) (Status, error) {
@@ -193,6 +205,25 @@ func (c *Coordinator) recordRunning(job Job) error {
 		status = normalizeStatus(status)
 		status.Status = StatusRunning
 		status.ActiveJob = &job
+		status.Progress = &Progress{}
+		status.UpdatedAt = nowString()
+		return c.saveStatusUnlocked(status)
+	})
+}
+
+func (c *Coordinator) recordProgress(job Job, progress Progress) error {
+	return c.withStatusLock(func() error {
+		status, err := c.loadStatusUnlocked()
+		if err != nil {
+			return err
+		}
+		status = normalizeStatus(status)
+		if status.ActiveJob == nil || status.ActiveJob.ID != job.ID {
+			return nil
+		}
+		progress = normalizeProgress(progress)
+		status.Status = StatusRunning
+		status.Progress = &progress
 		status.UpdatedAt = nowString()
 		return c.saveStatusUnlocked(status)
 	})
@@ -205,9 +236,19 @@ func (c *Coordinator) recordFinished(job Job, stats ingest.Stats, runErr error) 
 			return err
 		}
 		record := runRecord(job, stats, runErr, time.Now().UTC())
+		if status.Progress != nil {
+			progress := normalizeProgress(*status.Progress)
+			record.TotalDocuments = progress.TotalDocuments
+			record.ProcessedDocuments = progress.ProcessedDocuments
+		}
+		if runErr == nil {
+			record.TotalDocuments = stats.Files
+			record.ProcessedDocuments = stats.Files
+		}
 		status.Version = statusFileVersion
 		status.Status = record.Status
 		status.ActiveJob = nil
+		status.Progress = nil
 		status.LastRun = &record
 		status.UpdatedAt = record.CompletedAt
 		return c.saveStatusUnlocked(status)
@@ -254,16 +295,23 @@ func (c *Coordinator) recordBlockedStart(trigger string) (BlockedStart, error) {
 
 func (c *Coordinator) markStaleRunFailed(status Status, job Job) Status {
 	completedAt := time.Now().UTC()
+	progress := Progress{}
+	if status.Progress != nil {
+		progress = normalizeProgress(*status.Progress)
+	}
 	record := RunRecord{
-		Status:         StatusFailed,
-		Job:            job,
-		CompletedAt:    completedAt.Format(time.RFC3339Nano),
-		DurationMillis: durationMillis(job.StartedAt, completedAt),
-		Error:          "reindex process exited before updating job status",
+		Status:             StatusFailed,
+		Job:                job,
+		CompletedAt:        completedAt.Format(time.RFC3339Nano),
+		DurationMillis:     durationMillis(job.StartedAt, completedAt),
+		TotalDocuments:     progress.TotalDocuments,
+		ProcessedDocuments: progress.ProcessedDocuments,
+		Error:              "reindex process exited before updating job status",
 	}
 	status.Version = statusFileVersion
 	status.Status = StatusFailed
 	status.ActiveJob = nil
+	status.Progress = nil
 	status.LastRun = &record
 	status.UpdatedAt = record.CompletedAt
 	return status
@@ -276,22 +324,28 @@ func runRecord(job Job, stats ingest.Stats, runErr error, completedAt time.Time)
 		status = StatusFailed
 		errText = runErr.Error()
 	}
+	processedDocuments := stats.Files
+	if runErr != nil {
+		processedDocuments = stats.ChangedFiles + stats.ReusedFiles
+	}
 	return RunRecord{
-		Status:         status,
-		Job:            job,
-		CompletedAt:    completedAt.Format(time.RFC3339Nano),
-		DurationMillis: durationMillis(job.StartedAt, completedAt),
-		Files:          stats.Files,
-		Chunks:         stats.Chunks,
-		CodeFiles:      stats.CodeFiles,
-		DocsFiles:      stats.DocsFiles,
-		ChangedFiles:   stats.ChangedFiles,
-		DeletedFiles:   stats.DeletedFiles,
-		ReusedFiles:    stats.ReusedFiles,
-		EmbeddedChunks: stats.EmbeddedChunks,
-		ReusedChunks:   stats.ReusedChunks,
-		Generation:     stats.Generation,
-		Error:          errText,
+		Status:             status,
+		Job:                job,
+		CompletedAt:        completedAt.Format(time.RFC3339Nano),
+		DurationMillis:     durationMillis(job.StartedAt, completedAt),
+		TotalDocuments:     stats.Files,
+		ProcessedDocuments: processedDocuments,
+		Files:              stats.Files,
+		Chunks:             stats.Chunks,
+		CodeFiles:          stats.CodeFiles,
+		DocsFiles:          stats.DocsFiles,
+		ChangedFiles:       stats.ChangedFiles,
+		DeletedFiles:       stats.DeletedFiles,
+		ReusedFiles:        stats.ReusedFiles,
+		EmbeddedChunks:     stats.EmbeddedChunks,
+		ReusedChunks:       stats.ReusedChunks,
+		Generation:         stats.Generation,
+		Error:              errText,
 	}
 }
 
@@ -326,7 +380,28 @@ func normalizeStatus(status Status) Status {
 			status.Status = StatusIdle
 		}
 	}
+	if status.Status != StatusRunning {
+		status.Progress = nil
+	} else if status.Progress != nil {
+		progress := normalizeProgress(*status.Progress)
+		status.Progress = &progress
+	}
 	return status
+}
+
+func normalizeProgress(progress Progress) Progress {
+	if progress.TotalDocuments < 0 {
+		progress.TotalDocuments = 0
+	}
+	if progress.ProcessedDocuments < 0 {
+		progress.ProcessedDocuments = 0
+	}
+	if progress.TotalDocuments == 0 {
+		progress.ProcessedDocuments = 0
+	} else if progress.ProcessedDocuments > progress.TotalDocuments {
+		progress.ProcessedDocuments = progress.TotalDocuments
+	}
+	return progress
 }
 
 func durationMillis(startedAt string, completedAt time.Time) int64 {

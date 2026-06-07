@@ -141,7 +141,14 @@ func (s *Service) RunReindex(ctx context.Context, trigger string, onStart func(r
 		onStart(run.Job)
 	}
 
-	stats, err := s.Ingest.Reindex(ctx)
+	progressCtx := ingest.WithDocumentProgressReporter(ctx, func(progress ingest.DocumentProgress) {
+		_ = run.UpdateProgress(ctx, reindexjob.Progress{
+			TotalDocuments:     progress.TotalDocuments,
+			ProcessedDocuments: progress.ProcessedDocuments,
+		})
+	})
+
+	stats, err := s.Ingest.Reindex(progressCtx)
 	if err == nil {
 		var collectionID string
 		collectionID, err = s.Chroma.EnsureCollection(ctx, s.Config.CollectionName)

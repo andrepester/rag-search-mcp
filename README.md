@@ -251,8 +251,10 @@ records. A second start is rejected instead of queued or used to restart the
 running job. CLI duplicate starts exit with code `2`; MCP duplicate starts
 return `ok=false`, `status=blocked`, and `error=already_running`.
 
-`make index` displays an indeterminate progress bar while the containerized
-indexer is running, then prints a compact human-readable summary by default.
+`make index` displays a document-count progress bar while the containerized
+indexer is running. The progress is based on the number of documents discovered
+for indexing and the number already processed, then the command prints a compact
+human-readable summary by default.
 Use `make index OUTPUT=logs` to print the raw structured `rag-index` runtime
 logs, or `make index OUTPUT=json` to print one machine-readable result object
 for automation. Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode
@@ -265,10 +267,11 @@ After changing `rag-index` code, run `make up` once before `make index` so the
 running `rag-mcp` container contains the current binary.
 
 The `rag_reindex_status` tool returns status JSON with the current `active_job`
-when a run is active, the terminal `last_run` record, and the
-`last_blocked_start` record for the most recent rejected duplicate start. If a
-process exits without writing a terminal status, the next status check marks the
-stale active job as failed once the process lock is no longer held.
+and document-count `progress` when a run is active, the terminal `last_run`
+record, and the `last_blocked_start` record for the most recent rejected
+duplicate start. If a process exits without writing a terminal status, the next
+status check marks the stale active job as failed once the process lock is no
+longer held.
 
 Lifecycle examples:
 
