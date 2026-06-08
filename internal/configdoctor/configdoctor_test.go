@@ -30,7 +30,6 @@ func TestHostPathDefaultsStayBoundToKeys(t *testing.T) {
 		{key: "HOST_DOCS_DIR", value: "./data/docs"},
 		{key: "HOST_CODE_DIR", value: "./data/code"},
 		{key: "HOST_INDEX_DIR", value: "./data/index"},
-		{key: "HOST_MODELS_DIR", value: "./data/models"},
 	}
 
 	if len(hostPathKeys) != len(expected) {
@@ -147,7 +146,7 @@ func TestCheckReportsPersistenceSourceOverlap(t *testing.T) {
 		"HOST_DOCS_DIR=./data/docs",
 		"HOST_CODE_DIR=./data/code",
 		"HOST_INDEX_DIR=./data/docs/index",
-		"HOST_MODELS_DIR=./data/models",
+		"OLLAMA_HOST=http://ollama.example.internal:11434",
 		"",
 	}, "\n"))
 
@@ -175,7 +174,6 @@ func TestCheckResolvesRelativeHostPathsAgainstHostRepoRoot(t *testing.T) {
 		filepath.Join(parent, "docs"),
 		filepath.Join(parent, "code"),
 		filepath.Join(hostRepoRoot, "data", "index"),
-		filepath.Join(hostRepoRoot, "data", "models"),
 		filepath.Join(repoRoot, "docker"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -187,10 +185,8 @@ func TestCheckResolvesRelativeHostPathsAgainstHostRepoRoot(t *testing.T) {
 		"HOST_DOCS_DIR=../docs",
 		"HOST_CODE_DIR=../code",
 		"HOST_INDEX_DIR=./data/index",
-		"HOST_MODELS_DIR=./data/models",
-		"OLLAMA_HOST=http://ollama:11434",
+		"OLLAMA_HOST=http://ollama.example.internal:11434",
 		"EMBED_MODEL=nomic-embed-text",
-		"OLLAMA_PORT=11434",
 		"RAG_ENABLE_CODE_INGEST=true",
 		"RAG_CHROMA_TENANT=default_tenant",
 		"RAG_CHROMA_DATABASE=default_database",
@@ -225,7 +221,6 @@ func TestCheckKeepsHostPathSafetyWhenUsingHostRepoRoot(t *testing.T) {
 	for _, dir := range []string{
 		filepath.Join(parent, "docs", "index"),
 		filepath.Join(parent, "code"),
-		filepath.Join(hostRepoRoot, "data", "models"),
 		filepath.Join(repoRoot, "docker"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -237,10 +232,8 @@ func TestCheckKeepsHostPathSafetyWhenUsingHostRepoRoot(t *testing.T) {
 		"HOST_DOCS_DIR=../docs",
 		"HOST_CODE_DIR=../code",
 		"HOST_INDEX_DIR=../docs/index",
-		"HOST_MODELS_DIR=./data/models",
-		"OLLAMA_HOST=http://ollama:11434",
+		"OLLAMA_HOST=http://ollama.example.internal:11434",
 		"EMBED_MODEL=nomic-embed-text",
-		"OLLAMA_PORT=11434",
 		"RAG_ENABLE_CODE_INGEST=true",
 		"RAG_CHROMA_TENANT=default_tenant",
 		"RAG_CHROMA_DATABASE=default_database",
@@ -304,9 +297,6 @@ func TestCheckRejectsPublicHTTPHost(t *testing.T) {
 func TestCheckReportsHostlessMCPComposePublish(t *testing.T) {
 	repoRoot := newConfigDoctorRepo(t)
 	writeFile(t, filepath.Join(repoRoot, "docker", "docker-compose.yml"), 0o644, `services:
-  ollama:
-    ports:
-      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
   rag-mcp:
     ports:
       - "${RAG_HTTP_PORT:-8765}:8765"
@@ -324,29 +314,6 @@ func TestCheckReportsHostlessMCPComposePublish(t *testing.T) {
 	}
 }
 
-func TestCheckReportsHostlessOllamaComposePublish(t *testing.T) {
-	repoRoot := newConfigDoctorRepo(t)
-	writeFile(t, filepath.Join(repoRoot, "docker", "docker-compose.yml"), 0o644, `services:
-  ollama:
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-  rag-mcp:
-    ports:
-      - "${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"
-`)
-
-	report, err := CheckWithOptions(Options{
-		RepoRoot: repoRoot,
-		Environ:  []string{},
-	})
-	if err != nil {
-		t.Fatalf("CheckWithOptions() failed: %v", err)
-	}
-	if !hasFinding(report, SeverityError, "COMPOSE_OLLAMA_HOSTLESS_PUBLISH") {
-		t.Fatalf("missing COMPOSE_OLLAMA_HOSTLESS_PUBLISH in %#v", report.Findings)
-	}
-}
-
 func newConfigDoctorRepo(t *testing.T) string {
 	t.Helper()
 	repoRoot := t.TempDir()
@@ -354,7 +321,6 @@ func newConfigDoctorRepo(t *testing.T) string {
 		filepath.Join(repoRoot, "data", "docs"),
 		filepath.Join(repoRoot, "data", "code"),
 		filepath.Join(repoRoot, "data", "index"),
-		filepath.Join(repoRoot, "data", "models"),
 		filepath.Join(repoRoot, "docker"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -366,10 +332,8 @@ func newConfigDoctorRepo(t *testing.T) string {
 		"HOST_DOCS_DIR=./data/docs",
 		"HOST_CODE_DIR=./data/code",
 		"HOST_INDEX_DIR=./data/index",
-		"HOST_MODELS_DIR=./data/models",
-		"OLLAMA_HOST=http://ollama:11434",
+		"OLLAMA_HOST=http://ollama.example.internal:11434",
 		"EMBED_MODEL=nomic-embed-text",
-		"OLLAMA_PORT=11434",
 		"RAG_ENABLE_CODE_INGEST=true",
 		"RAG_CHROMA_TENANT=default_tenant",
 		"RAG_CHROMA_DATABASE=default_database",
@@ -390,9 +354,6 @@ func writeConfigDoctorRepoFiles(t *testing.T, repoRoot string, dotenv string) {
 	t.Helper()
 	writeFile(t, filepath.Join(repoRoot, ".env"), 0o600, dotenv)
 	writeFile(t, filepath.Join(repoRoot, "docker", "docker-compose.yml"), 0o644, `services:
-  ollama:
-    ports:
-      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
   rag-mcp:
     ports:
       - "${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"

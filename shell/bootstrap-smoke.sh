@@ -86,12 +86,15 @@ expect_env_line() {
 	fi
 }
 
-HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh </dev/null
+smoke_ollama=http://bootstrap-smoke-ollama:11434
+
+OLLAMA_HOST="$smoke_ollama" HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= sh ./shell/install-bootstrap.sh </dev/null
 test -f .env
 test ! -e opencode.json
+expect_env_line 'process ollama host merged' OLLAMA_HOST "$smoke_ollama"
 
 printf '%s\n' '{"userManaged":true}' > opencode.json
-HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh </dev/null
+HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= sh ./shell/install-bootstrap.sh </dev/null
 if ! grep -Fq '"userManaged":true' opencode.json; then
 	printf '%s\n' 'bootstrap smoke: expected user-managed opencode.json to stay unchanged' >&2
 	exit 1
@@ -100,53 +103,56 @@ rm -f opencode.json
 
 interactive_docs=./.smoke-override/interactive-docs
 interactive_code=./.smoke-override/interactive-code
-printf 'c\n%s\n%s\n' "$interactive_docs" "$interactive_code" | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh
+interactive_ollama=http://interactive-ollama:11434
+printf 'c\n%s\n%s\n%s\n' "$interactive_docs" "$interactive_code" "$interactive_ollama" | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= sh ./shell/install-bootstrap.sh
 test -d "$interactive_docs"
 test -d "$interactive_code"
 expect_env_line 'interactive custom docs value' HOST_DOCS_DIR "$interactive_docs"
 expect_env_line 'interactive custom code value' HOST_CODE_DIR "$interactive_code"
+expect_env_line 'interactive ollama host value' OLLAMA_HOST "$interactive_ollama"
 
-if printf 'maybe\n' | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh; then
+if printf 'maybe\n' | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= sh ./shell/install-bootstrap.sh; then
 	printf '%s\n' 'interactive smoke: expected invalid selection to fail' >&2
 	exit 1
 fi
 
 keep_docs=./.smoke-override/keep-docs
 keep_code=./.smoke-override/keep-code
-printf 'c\n%s\n%s\n' "$keep_docs" "$keep_code" | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh
-printf '\n' | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh
+keep_ollama=http://keep-ollama:11434
+printf 'c\n%s\n%s\n%s\n' "$keep_docs" "$keep_code" "$keep_ollama" | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= sh ./shell/install-bootstrap.sh
+printf '\n\n' | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR= HOST_CODE_DIR= HOST_INDEX_DIR= sh ./shell/install-bootstrap.sh
 expect_env_line 'Enter to keep existing docs value' HOST_DOCS_DIR "$keep_docs"
 expect_env_line 'Enter to keep existing code value' HOST_CODE_DIR "$keep_code"
+expect_env_line 'Enter to keep existing ollama host' OLLAMA_HOST "$keep_ollama"
 
 runtime_docs=./.smoke-override/runtime-docs
 runtime_code=./.smoke-override/runtime-code
-printf '\n' | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 HOST_DOCS_DIR="$runtime_docs" HOST_CODE_DIR="$runtime_code" HOST_INDEX_DIR= HOST_MODELS_DIR= sh ./shell/install-bootstrap.sh
+runtime_ollama=http://runtime-ollama:11434
+printf '\n\n' | INSTALL_BOOTSTRAP_FORCE_INTERACTIVE=1 OLLAMA_HOST="$runtime_ollama" HOST_DOCS_DIR="$runtime_docs" HOST_CODE_DIR="$runtime_code" HOST_INDEX_DIR= sh ./shell/install-bootstrap.sh
 expect_env_line 'runtime docs override persisted on Enter' HOST_DOCS_DIR "$runtime_docs"
 expect_env_line 'runtime code override persisted on Enter' HOST_CODE_DIR "$runtime_code"
+expect_env_line 'runtime ollama override persisted on Enter' OLLAMA_HOST "$runtime_ollama"
 
-HOST_DOCS_DIR=./.smoke-override/docs HOST_CODE_DIR=./.smoke-override/code HOST_INDEX_DIR=./.smoke-override/index HOST_MODELS_DIR=./.smoke-override/models sh ./shell/install-bootstrap.sh </dev/null
+OLLAMA_HOST="$smoke_ollama" HOST_DOCS_DIR=./.smoke-override/docs HOST_CODE_DIR=./.smoke-override/code HOST_INDEX_DIR=./.smoke-override/index sh ./shell/install-bootstrap.sh </dev/null
 test -d ./.smoke-override/docs
 test -d ./.smoke-override/code
 test -d ./.smoke-override/index
-test -d ./.smoke-override/models
 
 repo_root_abs=$(pwd -P)
 home_dir=${HOME-}
 host_parent=$(dirname "$repo_root_abs")
 absolute_root=$(mktemp -d "$host_parent/.bootstrap-smoke-absolute.XXXXXX")
-HOST_DOCS_DIR="$absolute_root/docs" HOST_CODE_DIR="$absolute_root/code" HOST_INDEX_DIR="$absolute_root/index" HOST_MODELS_DIR="$absolute_root/models" sh ./shell/install-bootstrap.sh </dev/null
+HOST_DOCS_DIR="$absolute_root/docs" HOST_CODE_DIR="$absolute_root/code" HOST_INDEX_DIR="$absolute_root/index" sh ./shell/install-bootstrap.sh </dev/null
 test -d "$absolute_root/docs"
 test -d "$absolute_root/code"
 test -d "$absolute_root/index"
-test -d "$absolute_root/models"
 
 alongside_root=$(mktemp -d "$host_parent/.bootstrap-smoke-alongside.XXXXXX")
 alongside_name=$(basename "$alongside_root")
-HOST_DOCS_DIR="../$alongside_name/docs" HOST_CODE_DIR="../$alongside_name/code" HOST_INDEX_DIR="../$alongside_name/index" HOST_MODELS_DIR="../$alongside_name/models" sh ./shell/install-bootstrap.sh </dev/null
+HOST_DOCS_DIR="../$alongside_name/docs" HOST_CODE_DIR="../$alongside_name/code" HOST_INDEX_DIR="../$alongside_name/index" sh ./shell/install-bootstrap.sh </dev/null
 test -d "$alongside_root/docs"
 test -d "$alongside_root/code"
 test -d "$alongside_root/index"
-test -d "$alongside_root/models"
 
 expect_clean_install_refused() {
 	label="$1"
@@ -173,17 +179,15 @@ mkdir -p "$clean_install_rm_stub_dir"
 } > "$clean_install_rm_stub_dir/rm"
 chmod +x "$clean_install_rm_stub_dir/rm"
 
-HOST_INDEX_DIR="./$clean_install_tmp/deep/new/index" HOST_MODELS_DIR="./$clean_install_tmp/deep/new/models" FULL_RESET=1 CLEAN_INSTALL_SKIP_DOWN=1 CLEAN_INSTALL_SKIP_INSTALL=1 sh ./shell/clean-install.sh
+HOST_INDEX_DIR="./$clean_install_tmp/deep/new/index" FULL_RESET=1 CLEAN_INSTALL_SKIP_DOWN=1 CLEAN_INSTALL_SKIP_INSTALL=1 sh ./shell/clean-install.sh
 test -d "$clean_install_tmp/deep/new"
 test ! -e "$clean_install_tmp/deep/new/index"
-test ! -e "$clean_install_tmp/deep/new/models"
 
 clean_install_stub_path="PATH=$repo_root_abs/$clean_install_rm_stub_dir:$PATH"
-clean_install_safe_models="./$clean_install_tmp/refusal/models"
-expect_clean_install_refused 'root path' "$clean_install_stub_path" 'HOST_INDEX_DIR=/' "HOST_MODELS_DIR=$clean_install_safe_models"
-expect_clean_install_refused 'repo root path' "$clean_install_stub_path" "HOST_INDEX_DIR=$repo_root_abs" "HOST_MODELS_DIR=$clean_install_safe_models"
-expect_clean_install_refused 'repo parent path' "$clean_install_stub_path" "HOST_INDEX_DIR=$host_parent" "HOST_MODELS_DIR=$clean_install_safe_models"
+expect_clean_install_refused 'root path' "$clean_install_stub_path" 'HOST_INDEX_DIR=/'
+expect_clean_install_refused 'repo root path' "$clean_install_stub_path" "HOST_INDEX_DIR=$repo_root_abs"
+expect_clean_install_refused 'repo parent path' "$clean_install_stub_path" "HOST_INDEX_DIR=$host_parent"
 if [ -n "$home_dir" ]; then
-	expect_clean_install_refused 'HOME path' "$clean_install_stub_path" "HOST_INDEX_DIR=$home_dir" "HOST_MODELS_DIR=$clean_install_safe_models"
+	expect_clean_install_refused 'HOME path' "$clean_install_stub_path" "HOST_INDEX_DIR=$home_dir"
 fi
-expect_clean_install_refused 'broad absolute path' "$clean_install_stub_path" 'HOST_INDEX_DIR=/usr' "HOST_MODELS_DIR=$clean_install_safe_models"
+expect_clean_install_refused 'broad absolute path' "$clean_install_stub_path" 'HOST_INDEX_DIR=/usr'

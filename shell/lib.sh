@@ -199,7 +199,7 @@ resolve_host_override() {
 }
 
 host_path_keys() {
-	printf '%s\n' HOST_DOCS_DIR HOST_CODE_DIR HOST_INDEX_DIR HOST_MODELS_DIR
+	printf '%s\n' HOST_DOCS_DIR HOST_CODE_DIR HOST_INDEX_DIR
 }
 
 host_path_default() {
@@ -208,7 +208,6 @@ host_path_default() {
 		HOST_DOCS_DIR) printf '%s' './data/docs' ;;
 		HOST_CODE_DIR) printf '%s' './data/code' ;;
 		HOST_INDEX_DIR) printf '%s' './data/index' ;;
-		HOST_MODELS_DIR) printf '%s' './data/models' ;;
 		*)
 			printf '%s\n' "unknown host path key '$key'" >&2
 			return 1
@@ -220,6 +219,24 @@ resolve_host_path() {
 	key="$1"
 	default_value=$(host_path_default "$key") || return 1
 	resolve_host_override "$key" "$default_value"
+}
+
+default_compose_file() {
+	printf '%s' 'docker/docker-compose.yml'
+}
+
+resolve_ollama_host() {
+	resolve_host_override OLLAMA_HOST ''
+}
+
+effective_compose_file() {
+	base_compose_file=${COMPOSE_FILE:-$(default_compose_file)}
+	printf '%s' "$base_compose_file"
+}
+
+all_runtime_compose_file() {
+	base_compose_file=${COMPOSE_FILE:-$(default_compose_file)}
+	printf '%s' "$base_compose_file"
 }
 
 ensure_abs_dir() {

@@ -40,7 +40,7 @@ protection in the same change.
 | `supply-chain` | `container-policy` | Container base images are digest-pinned and vulnerability scan exceptions are blocked. |
 | `supply-chain` | `sbom-and-licenses` | Go SBOM generation and license allowlist pass. |
 | `supply-chain` | `vulnerability-scan` | Filesystem and image vulnerability scans pass. |
-| `integration-ollama` | `ollama-e2e` | Full runtime startup and health smoke pass. |
+| `integration-ollama` | `ollama-e2e` | Full runtime startup against a configured shared Ollama host and health smoke pass. |
 
 ## Non-Required Checks
 

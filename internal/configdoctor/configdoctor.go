@@ -83,12 +83,9 @@ var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var defaults = map[string]string{
 	"RAG_HTTP_HOST":           "127.0.0.1",
 	"RAG_HTTP_PORT":           "8765",
-	"OLLAMA_PORT":             "11434",
 	"HOST_DOCS_DIR":           "./data/docs",
 	"HOST_CODE_DIR":           "./data/code",
 	"HOST_INDEX_DIR":          "./data/index",
-	"HOST_MODELS_DIR":         "./data/models",
-	"OLLAMA_HOST":             "http://ollama:11434",
 	"EMBED_MODEL":             "nomic-embed-text",
 	"RAG_ENABLE_CODE_INGEST":  "true",
 	"RAG_CHROMA_TENANT":       "default_tenant",
@@ -107,7 +104,6 @@ var hostPathKeys = []string{
 	"HOST_DOCS_DIR",
 	"HOST_CODE_DIR",
 	"HOST_INDEX_DIR",
-	"HOST_MODELS_DIR",
 }
 
 func Check(repoRoot string, environ []string) (Report, error) {
@@ -185,11 +181,7 @@ func (c *checker) checkDotEnv() {
 }
 
 func (c *checker) checkRuntimeValues() {
-	ragPort := c.checkPort("RAG_HTTP_PORT")
-	ollamaPort := c.checkPort("OLLAMA_PORT")
-	if ragPort > 0 && ollamaPort > 0 && ragPort == ollamaPort {
-		c.add(SeverityError, "PORT_CONFLICT", fmt.Sprintf("RAG_HTTP_PORT and OLLAMA_PORT both resolve to %d.", ragPort), "Use distinct host ports for rag-mcp and Ollama.")
-	}
+	c.checkPort("RAG_HTTP_PORT")
 
 	chunkSize := c.checkPositiveInt("RAG_CHUNK_SIZE")
 	chunkOverlap := c.checkNonNegativeInt("RAG_CHUNK_OVERLAP")
@@ -207,6 +199,7 @@ func (c *checker) checkRuntimeValues() {
 	c.checkNonEmpty("RAG_CHROMA_TENANT")
 	c.checkNonEmpty("RAG_CHROMA_DATABASE")
 	c.checkNonEmpty("RAG_COLLECTION_NAME")
+	c.checkNonEmpty("OLLAMA_HOST")
 	c.checkURL("OLLAMA_HOST")
 }
 
@@ -247,7 +240,7 @@ func (c *checker) checkHostPaths() {
 			c.add(SeverityError, key+"_NOT_DIRECTORY", fmt.Sprintf("%s points to %s, which is not a directory.", key, displayPath), fmt.Sprintf("Set %s to a directory path.", key))
 		}
 
-		if key == "HOST_INDEX_DIR" || key == "HOST_MODELS_DIR" {
+		if key == "HOST_INDEX_DIR" {
 			c.checkPersistentPathSafety(key, resolved)
 		}
 	}
@@ -270,12 +263,12 @@ func (c *checker) checkPersistentPathSafety(key string, resolved string) {
 
 	for _, candidate := range candidates {
 		if candidate == string(filepath.Separator) || candidate == "." {
-			c.add(SeverityError, key+"_UNSAFE_ROOT", fmt.Sprintf("%s resolves to unsafe path %s.", key, displayPath), fmt.Sprintf("Set %s to a dedicated persistence directory such as ./data/index or ./data/models.", key))
+			c.add(SeverityError, key+"_UNSAFE_ROOT", fmt.Sprintf("%s resolves to unsafe path %s.", key, displayPath), fmt.Sprintf("Set %s to a dedicated persistence directory such as ./data/index.", key))
 			return
 		}
 		for _, repo := range repoCandidates {
 			if candidate == repo {
-				c.add(SeverityError, key+"_UNSAFE_REPO", fmt.Sprintf("%s points at the repository root %s.", key, displayPath), fmt.Sprintf("Set %s to a dedicated child directory such as ./data/index or ./data/models.", key))
+				c.add(SeverityError, key+"_UNSAFE_REPO", fmt.Sprintf("%s points at the repository root %s.", key, displayPath), fmt.Sprintf("Set %s to a dedicated child directory such as ./data/index.", key))
 				return
 			}
 			if candidate == filepath.Dir(repo) {
@@ -305,13 +298,7 @@ func (c *checker) resolveHostPath(raw string) (string, error) {
 }
 
 func (c *checker) checkHostPathRelations(paths map[string]string) {
-	indexPath, hasIndex := paths["HOST_INDEX_DIR"]
-	modelsPath, hasModels := paths["HOST_MODELS_DIR"]
-	if hasIndex && hasModels && filepath.Clean(indexPath) == filepath.Clean(modelsPath) {
-		c.add(SeverityError, "HOST_PERSISTENCE_PATH_CONFLICT", fmt.Sprintf("HOST_INDEX_DIR and HOST_MODELS_DIR both resolve to %s.", c.displayPath(indexPath)), "Use separate persistence directories for Chroma index data and Ollama models.")
-	}
-
-	for _, persistenceKey := range []string{"HOST_INDEX_DIR", "HOST_MODELS_DIR"} {
+	for _, persistenceKey := range []string{"HOST_INDEX_DIR"} {
 		persistencePath, ok := paths[persistenceKey]
 		if !ok {
 			continue
@@ -358,17 +345,8 @@ func (c *checker) checkComposeSecurity() {
 	if regexp.MustCompile(`(?m)^\s*-\s*"?\[::\]:\$\{RAG_HTTP_PORT`).MatchString(content) {
 		c.add(SeverityError, "COMPOSE_MCP_PUBLIC_IPV6_BIND", "docker-compose.yml publishes rag-mcp on all IPv6 interfaces.", "Keep the Compose default loopback-only and use RAG_HTTP_HOST for explicit LAN-only operation.")
 	}
-	if hasHostlessPortPublish(content, "OLLAMA_PORT", "11434") {
-		c.add(SeverityError, "COMPOSE_OLLAMA_HOSTLESS_PUBLISH", "docker-compose.yml publishes Ollama without an explicit host bind.", "Keep Ollama bound to 127.0.0.1; LAN opt-in applies to rag-mcp, not the embedding backend.")
-	}
-	if regexp.MustCompile(`(?m)^\s*-\s*"?0\.0\.0\.0:\$\{OLLAMA_PORT`).MatchString(content) {
-		c.add(SeverityError, "COMPOSE_OLLAMA_PUBLIC_BIND", "docker-compose.yml publishes Ollama on 0.0.0.0.", "Keep Ollama bound to 127.0.0.1 unless a separate operating decision allows wider exposure.")
-	}
 	if !strings.Contains(content, `"${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"`) {
 		c.add(SeverityWarning, "COMPOSE_MCP_LOOPBACK_DEFAULT", "docker-compose.yml no longer contains the expected loopback publish default for rag-mcp.", "Verify that /mcp is still localhost-only by default and LAN-only access requires RAG_HTTP_HOST opt-in.")
-	}
-	if !strings.Contains(content, `"127.0.0.1:${OLLAMA_PORT:-11434}:11434"`) {
-		c.add(SeverityWarning, "COMPOSE_OLLAMA_LOOPBACK_DEFAULT", "docker-compose.yml no longer contains the expected loopback publish default for Ollama.", "Verify that Ollama is still localhost-only by default.")
 	}
 }
 
@@ -479,9 +457,12 @@ func (c *checker) checkNonEmpty(key string) {
 
 func (c *checker) checkURL(key string) {
 	value := strings.TrimSpace(c.effective(key).value)
+	if value == "" {
+		return
+	}
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		c.add(SeverityError, key+"_URL", fmt.Sprintf("%s resolves to invalid URL %q.", key, value), fmt.Sprintf("Set %s to an http(s) URL, for example http://ollama:11434.", key))
+		c.add(SeverityError, key+"_URL", fmt.Sprintf("%s resolves to invalid URL %q.", key, value), fmt.Sprintf("Set %s to an http(s) URL, for example http://ollama.example.internal:11434.", key))
 		return
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {

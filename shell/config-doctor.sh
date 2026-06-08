@@ -45,11 +45,9 @@ set -- docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e GOCACHE=/tmp/go-bu
 for key in \
 	RAG_HTTP_HOST \
 	RAG_HTTP_PORT \
-	OLLAMA_PORT \
 	HOST_DOCS_DIR \
 	HOST_CODE_DIR \
 	HOST_INDEX_DIR \
-	HOST_MODELS_DIR \
 	OLLAMA_HOST \
 	EMBED_MODEL \
 	RAG_ENABLE_CODE_INGEST \

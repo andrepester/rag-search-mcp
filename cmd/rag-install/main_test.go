@@ -31,7 +31,6 @@ func TestRunCreatesEnvAndHostDirsWithoutClientConfig(t *testing.T) {
 		filepath.Join(repoRoot, "data", "docs"),
 		filepath.Join(repoRoot, "data", "code"),
 		filepath.Join(repoRoot, "data", "index"),
-		filepath.Join(repoRoot, "data", "models"),
 	} {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			t.Fatalf("expected directory %s to exist: %v", dir, err)

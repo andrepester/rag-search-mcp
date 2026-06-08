@@ -111,7 +111,6 @@ func TestEnsureHostDataDirsCreatesDefaults(t *testing.T) {
 		filepath.Join(repoRoot, "data", "code"),
 		filepath.Join(repoRoot, "data", "index"),
 		filepath.Join(repoRoot, "data", "index", "rag-state"),
-		filepath.Join(repoRoot, "data", "models"),
 	} {
 		info, err := os.Stat(dir)
 		if err != nil {
@@ -126,7 +125,7 @@ func TestEnsureHostDataDirsCreatesDefaults(t *testing.T) {
 
 func TestEnsureHostDataDirsUsesConfiguredHostPaths(t *testing.T) {
 	repoRoot := t.TempDir()
-	envContent := "HOST_DOCS_DIR=./custom/docs\nHOST_CODE_DIR=./custom/code\nHOST_INDEX_DIR=./custom/index\nHOST_MODELS_DIR=./custom/models\n"
+	envContent := "HOST_DOCS_DIR=./custom/docs\nHOST_CODE_DIR=./custom/code\nHOST_INDEX_DIR=./custom/index\n"
 	if err := os.WriteFile(filepath.Join(repoRoot, ".env"), []byte(envContent), 0o600); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
@@ -140,7 +139,6 @@ func TestEnsureHostDataDirsUsesConfiguredHostPaths(t *testing.T) {
 		filepath.Join(repoRoot, "custom", "code"),
 		filepath.Join(repoRoot, "custom", "index"),
 		filepath.Join(repoRoot, "custom", "index", "rag-state"),
-		filepath.Join(repoRoot, "custom", "models"),
 	} {
 		info, err := os.Stat(dir)
 		if err != nil {
@@ -155,7 +153,7 @@ func TestEnsureHostDataDirsUsesConfiguredHostPaths(t *testing.T) {
 
 func TestEnsureHostDataDirsPrefersProcessEnvOverDotEnv(t *testing.T) {
 	repoRoot := t.TempDir()
-	envContent := "HOST_DOCS_DIR=./from-dotenv/docs\nHOST_CODE_DIR=./from-dotenv/code\nHOST_INDEX_DIR=./from-dotenv/index\nHOST_MODELS_DIR=./from-dotenv/models\n"
+	envContent := "HOST_DOCS_DIR=./from-dotenv/docs\nHOST_CODE_DIR=./from-dotenv/code\nHOST_INDEX_DIR=./from-dotenv/index\n"
 	if err := os.WriteFile(filepath.Join(repoRoot, ".env"), []byte(envContent), 0o600); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
@@ -163,7 +161,6 @@ func TestEnsureHostDataDirsPrefersProcessEnvOverDotEnv(t *testing.T) {
 	t.Setenv("HOST_DOCS_DIR", "./from-env/docs")
 	t.Setenv("HOST_CODE_DIR", "./from-env/code")
 	t.Setenv("HOST_INDEX_DIR", "./from-env/index")
-	t.Setenv("HOST_MODELS_DIR", "./from-env/models")
 
 	if err := EnsureHostDataDirs(repoRoot); err != nil {
 		t.Fatalf("EnsureHostDataDirs() failed: %v", err)
@@ -174,7 +171,6 @@ func TestEnsureHostDataDirsPrefersProcessEnvOverDotEnv(t *testing.T) {
 		filepath.Join(repoRoot, "from-env", "code"),
 		filepath.Join(repoRoot, "from-env", "index"),
 		filepath.Join(repoRoot, "from-env", "index", "rag-state"),
-		filepath.Join(repoRoot, "from-env", "models"),
 	} {
 		info, err := os.Stat(dir)
 		if err != nil {

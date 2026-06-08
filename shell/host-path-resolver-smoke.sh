@@ -111,7 +111,6 @@ expected_default_for_key() {
 		HOST_DOCS_DIR) printf '%s' './data/docs' ;;
 		HOST_CODE_DIR) printf '%s' './data/code' ;;
 		HOST_INDEX_DIR) printf '%s' './data/index' ;;
-		HOST_MODELS_DIR) printf '%s' './data/models' ;;
 		*) fail "no expected default for $key" ;;
 	esac
 }
@@ -123,7 +122,6 @@ expected_fixture_for_key() {
 		HOST_DOCS_DIR) printf './%s/%s-docs' "$smoke_root" "$prefix" ;;
 		HOST_CODE_DIR) printf './%s/%s-code' "$smoke_root" "$prefix" ;;
 		HOST_INDEX_DIR) printf './%s/%s-index' "$smoke_root" "$prefix" ;;
-		HOST_MODELS_DIR) printf './%s/%s-models' "$smoke_root" "$prefix" ;;
 		*) fail "no expected fixture for $key" ;;
 	esac
 }
@@ -134,7 +132,6 @@ compose_mount_for_key() {
 		HOST_DOCS_DIR) printf '%s' '${HOST_DOCS_DIR:-./data/docs}:/data/docs:ro' ;;
 		HOST_CODE_DIR) printf '%s' '${HOST_CODE_DIR:-./data/code}:/data/code:ro' ;;
 		HOST_INDEX_DIR) printf '%s' '${HOST_INDEX_DIR:-./data/index}:/data' ;;
-		HOST_MODELS_DIR) printf '%s' '${HOST_MODELS_DIR:-./data/models}:/root/.ollama/models' ;;
 		*) fail "no compose mount fixture for $key" ;;
 	esac
 }
@@ -145,7 +142,6 @@ bootstrap_default_const_for_key() {
 		HOST_DOCS_DIR) printf '%s' 'hostDocsDir       = "./data/docs"' ;;
 		HOST_CODE_DIR) printf '%s' 'hostCodeDir       = "./data/code"' ;;
 		HOST_INDEX_DIR) printf '%s' 'hostIndexDir      = "./data/index"' ;;
-		HOST_MODELS_DIR) printf '%s' 'hostModelsDir     = "./data/models"' ;;
 		*) fail "no bootstrap default fixture for $key" ;;
 	esac
 }
@@ -156,7 +152,6 @@ bootstrap_key_const_for_key() {
 		HOST_DOCS_DIR) printf '%s' 'hostDocsEnvKey    = "HOST_DOCS_DIR"' ;;
 		HOST_CODE_DIR) printf '%s' 'hostCodeEnvKey    = "HOST_CODE_DIR"' ;;
 		HOST_INDEX_DIR) printf '%s' 'hostIndexEnvKey   = "HOST_INDEX_DIR"' ;;
-		HOST_MODELS_DIR) printf '%s' 'hostModelsEnvKey  = "HOST_MODELS_DIR"' ;;
 		*) fail "no bootstrap key fixture for $key" ;;
 	esac
 }
@@ -245,8 +240,7 @@ test_resolve_empty_values_fall_back() {
 	HOST_DOCS_DIR=
 	HOST_CODE_DIR='   '
 	HOST_INDEX_DIR=
-	HOST_MODELS_DIR='   '
-	export HOST_DOCS_DIR HOST_CODE_DIR HOST_INDEX_DIR HOST_MODELS_DIR
+	export HOST_DOCS_DIR HOST_CODE_DIR HOST_INDEX_DIR
 
 	expect_all_resolved_to_fixture "empty or whitespace process env falls back to .env" env-file
 
@@ -254,8 +248,7 @@ test_resolve_empty_values_fall_back() {
 	write_env_file \
 		'HOST_DOCS_DIR=' \
 		'HOST_CODE_DIR=   ' \
-		"HOST_INDEX_DIR='   '" \
-		'HOST_MODELS_DIR=""'
+		"HOST_INDEX_DIR='   '"
 	expect_all_resolved_to_defaults "empty or whitespace .env falls back to default"
 }
 
@@ -266,13 +259,11 @@ test_resolve_env_file_parsing() {
 		"UNKNOWN_HOST_DIR=./$smoke_root/unknown" \
 		" HOST_DOCS_DIR = \"$(expected_fixture_for_key HOST_DOCS_DIR spaced)\" " \
 		"HOST_CODE_DIR='$(expected_fixture_for_key HOST_CODE_DIR quoted)'" \
-		"HOST_INDEX_DIR=$(expected_fixture_for_key HOST_INDEX_DIR plain)" \
-		"HOST_MODELS_DIR=$(expected_fixture_for_key HOST_MODELS_DIR plain)"
+		"HOST_INDEX_DIR=$(expected_fixture_for_key HOST_INDEX_DIR plain)"
 
 	expect_resolve_host_path ".env parser trims key and double-quoted value" HOST_DOCS_DIR "$(expected_fixture_for_key HOST_DOCS_DIR spaced)"
 	expect_resolve_host_path ".env parser trims single-quoted value" HOST_CODE_DIR "$(expected_fixture_for_key HOST_CODE_DIR quoted)"
-	expect_resolve_host_path ".env parser accepts plain value" HOST_INDEX_DIR "$(expected_fixture_for_key HOST_INDEX_DIR plain)"
-	expect_resolve_host_path ".env parser ignores comments and unknown keys" HOST_MODELS_DIR "$(expected_fixture_for_key HOST_MODELS_DIR plain)"
+	expect_resolve_host_path ".env parser accepts plain value and ignores comments and unknown keys" HOST_INDEX_DIR "$(expected_fixture_for_key HOST_INDEX_DIR plain)"
 }
 
 test_host_path_abs_relative_and_absolute() {
@@ -306,8 +297,8 @@ test_host_path_abs_rejects_terminal_dot_segments() {
 	fi
 	assert_file_contains "terminal . error" "$smoke_root/error.log" "cannot resolve terminal path segment '.'"
 
-	set_host_var HOST_MODELS_DIR "./$smoke_root/bad/.."
-	if host_path_abs "$repo_root" HOST_MODELS_DIR > "$smoke_root/unexpected.out" 2> "$smoke_root/error.log"; then
+	set_host_var HOST_INDEX_DIR "./$smoke_root/bad/.."
+	if host_path_abs "$repo_root" HOST_INDEX_DIR > "$smoke_root/unexpected.out" 2> "$smoke_root/error.log"; then
 		fail "terminal .. path should be rejected"
 	fi
 	assert_file_contains "terminal .. error" "$smoke_root/error.log" "cannot resolve terminal path segment '..'"
@@ -334,9 +325,10 @@ test_ensure_host_path_abs_dir() {
 test_shared_resolver_callers_do_not_drift() {
 	assert_file_contains "install-bootstrap reads docs path through shared resolver" shell/install-bootstrap.sh 'docs_value=$(resolve_host_path HOST_DOCS_DIR)'
 	assert_file_contains "install-bootstrap reads code path through shared resolver" shell/install-bootstrap.sh 'code_value=$(resolve_host_path HOST_CODE_DIR)'
+	assert_file_contains "install-bootstrap reads ollama host through shared resolver" shell/install-bootstrap.sh 'ollama_host_value=$(resolve_ollama_host)'
+	assert_file_contains "install-bootstrap persists ollama host through env upsert" shell/install-bootstrap.sh 'upsert_env_value OLLAMA_HOST "$ollama_host_value"'
 	assert_file_contains "install-bootstrap mounts through shared resolver" shell/install-bootstrap.sh 'resolved_abs=$(ensure_host_path_abs_dir "$host_repo" "$key")'
 	assert_file_contains "clean-install resolves index path through shared resolver" shell/clean-install.sh 'index_abs=$(host_path_abs "$repo_root" HOST_INDEX_DIR)'
-	assert_file_contains "clean-install resolves models path through shared resolver" shell/clean-install.sh 'models_abs=$(host_path_abs "$repo_root" HOST_MODELS_DIR)'
 	assert_file_contains "config-doctor reads host paths through shared resolver" shell/config-doctor.sh 'configured=$(resolve_host_path "$key")'
 	assert_file_contains "install delegates indexing through index helper" shell/install.sh 'sh ./shell/index.sh'
 	assert_file_contains "doctor delegates indexing through index helper" shell/doctor.sh 'sh ./shell/index.sh'

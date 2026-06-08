@@ -3,7 +3,7 @@ set -eu
 
 . ./shell/lib.sh
 compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
-compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
+compose_file=$(effective_compose_file)
 
 full_reset_raw=${FULL_RESET-0}
 is_full_reset=$(parse_bool_01 "$full_reset_raw" 0) || {
@@ -29,7 +29,6 @@ if [ "$is_full_reset" -eq 1 ]; then
 	home_dir=${HOME-}
 
 	index_abs=$(host_path_abs "$repo_root" HOST_INDEX_DIR)
-	models_abs=$(host_path_abs "$repo_root" HOST_MODELS_DIR)
 
 	assert_safe_reset_dir() {
 		dir="$1"
@@ -71,17 +70,16 @@ if [ "$is_full_reset" -eq 1 ]; then
 	}
 
 	assert_safe_reset_dir "$index_abs" HOST_INDEX_DIR
-	assert_safe_reset_dir "$models_abs" HOST_MODELS_DIR
 
-	printf 'FULL_RESET=1: removing persistent runtime paths\n  - %s\n  - %s\n' "$index_abs" "$models_abs"
+	printf 'FULL_RESET=1: removing persistent index path\n  - %s\n' "$index_abs"
 	if [ "$skip_down" -eq 0 ]; then
-		docker compose --project-directory "$compose_project_dir" -f "$compose_file" down --remove-orphans
+		COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" down --remove-orphans
 	fi
-	rm -rf "$index_abs" "$models_abs"
+	rm -rf "$index_abs"
 else
-	printf '%s\n' 'Safe clean-install: preserving HOST_INDEX_DIR and HOST_MODELS_DIR (set FULL_RESET=1 to wipe).'
+	printf '%s\n' 'Safe clean-install: preserving HOST_INDEX_DIR (set FULL_RESET=1 to wipe).'
 	if [ "$skip_down" -eq 0 ]; then
-		docker compose --project-directory "$compose_project_dir" -f "$compose_file" down --remove-orphans
+		COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" down --remove-orphans
 	fi
 fi
 

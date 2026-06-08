@@ -4,7 +4,7 @@ set -eu
 . ./shell/lib.sh
 
 compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
-compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
+compose_file=$(effective_compose_file)
 fresh_index_raw=${FRESH_INDEX-0}
 fresh_index=$(parse_bool_01 "$fresh_index_raw" 0) || {
 	printf '%s\n' 'FRESH_INDEX must be one of: 0,1,true,false,yes,no' >&2
@@ -20,9 +20,9 @@ case "$output" in
 		;;
 esac
 
-docker compose --project-directory "$compose_project_dir" -f "$compose_file" config >/dev/null
+COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" config >/dev/null
 
-if ! docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T rag-mcp true >/dev/null 2>&1; then
+if ! COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" exec -T rag-mcp true >/dev/null 2>&1; then
 	printf '%s\n' 'index: rag-mcp container is not running. Start the stack first with make up.' >&2
 	exit 1
 fi
@@ -60,7 +60,7 @@ terminate_container_index() {
 	if [ -z "$index_run_token" ]; then
 		return
 	fi
-	docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c '
+	COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" exec -T -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c '
 		pid_file="/data/index-state/rag-index-${RAG_INDEX_RUN_TOKEN}.pid"
 		pid=$(cat "$pid_file" 2>/dev/null || :)
 		case "$pid" in
@@ -139,7 +139,7 @@ build_progress_bar() {
 
 render_progress() {
 	elapsed=$(( $(date +%s) - start_epoch ))
-	status_json=$(docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T rag-mcp /app/rag-index --status 2>/dev/null || :)
+	status_json=$(COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" exec -T rag-mcp /app/rag-index --status 2>/dev/null || :)
 	status_value=$(printf '%s\n' "$status_json" | progress_json_string status)
 	progress_line=
 
@@ -202,7 +202,7 @@ if [ "$fresh_index" -eq 1 ]; then
 	printf '%s\n' 'index: FRESH_INDEX=1 requested; resetting the configured Chroma collection before rebuild.' >&2
 fi
 
-docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c '
+COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c '
 	pid_file="/data/index-state/rag-index-${RAG_INDEX_RUN_TOKEN}.pid"
 	mkdir -p /data/index-state
 	cleanup() {

@@ -15,12 +15,10 @@ const (
 	envFileName       = ".env"
 	envExampleName    = ".env.example"
 	hostIndexDir      = "./data/index"
-	hostModelsDir     = "./data/models"
 	hostDocsDir       = "./data/docs"
 	hostCodeDir       = "./data/code"
 	hostIndexStateDir = "rag-state"
 	hostIndexEnvKey   = "HOST_INDEX_DIR"
-	hostModelsEnvKey  = "HOST_MODELS_DIR"
 	hostDocsEnvKey    = "HOST_DOCS_DIR"
 	hostCodeEnvKey    = "HOST_CODE_DIR"
 )
@@ -119,12 +117,8 @@ func EnsureHostDataDirs(repoRoot string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", hostIndexEnvKey, err)
 	}
-	modelsDir, err := resolveHostDir(repoRoot, envValues, hostModelsEnvKey, hostModelsDir)
-	if err != nil {
-		return fmt.Errorf("resolve %s: %w", hostModelsEnvKey, err)
-	}
 
-	for _, dir := range []string{docsDir, codeDir, indexDir, modelsDir} {
+	for _, dir := range []string{docsDir, codeDir, indexDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create directory %s: %w", dir, err)
 		}

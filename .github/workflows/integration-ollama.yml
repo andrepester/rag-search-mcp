@@ -16,10 +16,34 @@ jobs:
   ollama-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      OLLAMA_HOST: http://host.docker.internal:11434
+      EMBED_MODEL: nomic-embed-text
 
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Start shared Ollama host
+        run: |
+          docker_gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
+          if [ -z "$docker_gateway" ]; then
+            echo "could not determine Docker bridge gateway" >&2
+            exit 1
+          fi
+          docker run -d --name shared-ollama -p "${docker_gateway}:11434:11434" ollama/ollama:0.5.7
+          for i in $(seq 1 60); do
+            if docker exec shared-ollama ollama list >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "shared Ollama host not ready" >&2
+          docker logs shared-ollama >&2 || true
+          exit 1
+
+      - name: Pull embedding model on shared Ollama host
+        run: docker exec shared-ollama ollama pull "$EMBED_MODEL"
 
       - name: Install local runtime stack
         run: make install
@@ -46,3 +70,7 @@ jobs:
       - name: Shutdown stack
         if: always()
         run: docker compose --project-directory . -f docker/docker-compose.yml down -v
+
+      - name: Stop shared Ollama host
+        if: always()
+        run: docker rm -f shared-ollama
