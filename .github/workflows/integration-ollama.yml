@@ -26,7 +26,12 @@ jobs:
 
       - name: Start shared Ollama host
         run: |
-          docker run -d --name shared-ollama -p 127.0.0.1:11434:11434 ollama/ollama:0.5.7
+          docker_gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
+          if [ -z "$docker_gateway" ]; then
+            echo "could not determine Docker bridge gateway" >&2
+            exit 1
+          fi
+          docker run -d --name shared-ollama -p "${docker_gateway}:11434:11434" ollama/ollama:0.5.7
           for i in $(seq 1 60); do
             if docker exec shared-ollama ollama list >/dev/null 2>&1; then
               exit 0
