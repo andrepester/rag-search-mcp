@@ -262,7 +262,9 @@ for indexing and the number already processed, then the command prints a compact
 human-readable summary by default.
 Use `make index OUTPUT=logs` to print the raw structured `rag-index` runtime
 logs, or `make index OUTPUT=json` to print one machine-readable result object
-for automation. Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode
+for automation. Use `make index INDEX_LIMIT=10` to cap a run at 10 source
+documents for smoke checks; the default `INDEX_LIMIT=0` indexes all discovered
+sources. Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode
 resets the configured Chroma collection before rebuilding, so unchanged sources
 are embedded again and old index records are not reused. It does not remove
 mounted source data from `HOST_DOCS_DIR` or `HOST_CODE_DIR`.
@@ -381,6 +383,7 @@ boundary.
 | `RAG_CHUNK_OVERLAP` | `200` | Chunk overlap in characters |
 | `RAG_MAX_TOP_K` | `50` | Upper bound for explicit MCP/API `top_k`; the bundled UI omits `top_k` and shows all relevant matches |
 | `RAG_MAX_SEARCH_DISTANCE` | `0.50` | Default semantic distance threshold for search relevance; lower is stricter, higher shows more matches |
+| `RAG_INDEX_LIMIT` | `0` | Maximum number of source documents to index; `0` means all discovered docs/code sources |
 | `RAG_LOG_LEVEL` | `info` | Runtime log level: `debug`, `info`, `warn`, or `error` |
 | `RAG_LOG_FORMAT` | `json` | Runtime log format for `rag-mcp` and `rag-index`: `json` or `text` |
 | `OLLAMA_HOST` | required | Shared Ollama HTTP endpoint used by `rag-mcp`; this stack does not start or manage Ollama |

@@ -33,6 +33,7 @@ type Config struct {
 	MaxSearchDistance float64
 	EnableCodeIngest  bool
 	FreshIndex        bool
+	IndexLimit        int
 	LogLevel          string
 	LogFormat         string
 }
@@ -84,6 +85,13 @@ func Load() (Config, error) {
 	freshIndex, err := envBool("FRESH_INDEX", false)
 	if err != nil {
 		return Config{}, err
+	}
+	indexLimit, err := envInt("RAG_INDEX_LIMIT", 0)
+	if err != nil {
+		return Config{}, err
+	}
+	if indexLimit < 0 {
+		return Config{}, fmt.Errorf("RAG_INDEX_LIMIT must be >= 0")
 	}
 
 	defaultScope := strings.ToLower(strings.TrimSpace(env("RAG_SCOPE_DEFAULT", "all")))
@@ -140,6 +148,7 @@ func Load() (Config, error) {
 		MaxSearchDistance: maxSearchDistance,
 		EnableCodeIngest:  enableCodeIngest,
 		FreshIndex:        freshIndex,
+		IndexLimit:        indexLimit,
 		LogLevel:          logLevel,
 		LogFormat:         logFormat,
 	}

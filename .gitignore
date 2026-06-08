@@ -28,6 +28,8 @@ grype-*.sarif
 data/docs/**
 !data/docs/
 !data/docs/rag-test.md
+!data/docs/demo/
+!data/docs/demo/**
 
 # Local code mount content (keep directory placeholder tracked)
 data/code/**

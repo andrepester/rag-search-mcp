@@ -329,26 +329,39 @@ func writeBatches(ctx context.Context, chroma *store.ChromaClient, collectionID 
 
 func (s *Service) loadDocuments() ([]document, Stats, error) {
 	out := make([]document, 0)
-	stats := Stats{}
 
 	if docs, err := loadScopeDocuments(s.Config.DocsDir, "docs", docsExt); err != nil {
-		return nil, stats, err
+		return nil, Stats{}, err
 	} else {
-		stats.DocsFiles = len(docs)
 		out = append(out, docs...)
 	}
 
 	if s.Config.EnableCodeIngest {
 		if code, err := loadScopeDocuments(s.Config.CodeDir, "code", codeExt); err != nil {
-			return nil, stats, err
+			return nil, Stats{}, err
 		} else {
-			stats.CodeFiles = len(code)
 			out = append(out, code...)
 		}
 	}
 
-	stats.Files = len(out)
-	return out, stats, nil
+	if s.Config.IndexLimit > 0 && len(out) > s.Config.IndexLimit {
+		out = out[:s.Config.IndexLimit]
+	}
+
+	return out, documentStats(out), nil
+}
+
+func documentStats(docs []document) Stats {
+	stats := Stats{Files: len(docs)}
+	for _, doc := range docs {
+		switch doc.Scope {
+		case "docs":
+			stats.DocsFiles++
+		case "code":
+			stats.CodeFiles++
+		}
+	}
+	return stats
 }
 
 func loadScopeDocuments(root, scope string, allowedExt map[string]struct{}) ([]document, error) {

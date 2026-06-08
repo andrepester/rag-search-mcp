@@ -212,6 +212,7 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 		slog.String("code_dir", cfg.CodeDir),
 		slog.Bool("code_ingest", cfg.EnableCodeIngest),
 		slog.Bool("fresh_index", cfg.FreshIndex),
+		slog.Int("index_limit", cfg.IndexLimit),
 		slog.String("collection", cfg.CollectionName),
 	)
 

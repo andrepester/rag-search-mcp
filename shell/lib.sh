@@ -363,3 +363,21 @@ parse_bool_01() {
 		*) return 1 ;;
 	esac
 }
+
+parse_non_negative_int() {
+	value="$1"
+	default_value="$2"
+	normalized=$(printf '%s' "$value" | tr -d '[:space:]')
+	if [ -z "$normalized" ]; then
+		printf '%s' "$default_value"
+		return 0
+	fi
+	case "$normalized" in
+		*[!0-9]*)
+			return 1
+			;;
+		*)
+			printf '%s' "$normalized"
+			;;
+	esac
+}
