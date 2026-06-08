@@ -207,7 +207,7 @@ if [ "$fresh_index" -eq 1 ]; then
 	printf '%s\n' 'index: FRESH_INDEX=1 requested; resetting the configured Chroma collection before rebuild.' >&2
 fi
 if [ "$index_limit" -gt 0 ]; then
-	printf 'index: INDEX_LIMIT=%s requested; indexing at most %s source documents.\n' "$index_limit" "$index_limit" >&2
+	printf 'index: INDEX_LIMIT=%s requested; indexing at most %s input documents.\n' "$index_limit" "$index_limit" >&2
 fi
 
 COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_LIMIT="$index_limit" -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c '
