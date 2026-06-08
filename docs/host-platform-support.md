@@ -43,9 +43,13 @@ GitHub-hosted runners.
 
 ## Runtime Smoke Plan
 
-Run this sequence when validating a host in the supported matrix:
+Run this sequence when validating a host in the supported matrix. Replace the
+example `OLLAMA_HOST` with the shared Ollama endpoint that should be reachable
+from the `rag-mcp` container:
 
 ```bash
+OLLAMA_HOST=http://ollama.example.internal:11434
+export OLLAMA_HOST
 make help
 sh ./shell/ci-host-portability.sh
 docker compose --project-directory . -f docker/docker-compose.yml config
