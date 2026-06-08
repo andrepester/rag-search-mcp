@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -280,6 +281,64 @@ func TestReindexReportsEmptyDocumentProgress(t *testing.T) {
 	want := []DocumentProgress{{TotalDocuments: 0, ProcessedDocuments: 0}}
 	if len(progresses) != len(want) || progresses[0] != want[0] {
 		t.Fatalf("progresses = %+v, want %+v", progresses, want)
+	}
+}
+
+func TestReindexHonorsIndexLimit(t *testing.T) {
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	codeDir := filepath.Join(root, "code")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+	if err := os.MkdirAll(codeDir, 0o755); err != nil {
+		t.Fatalf("create code dir: %v", err)
+	}
+	for _, name := range []string{"a.md", "b.md", "c.md"} {
+		if err := os.WriteFile(filepath.Join(docsDir, name), []byte(name+" guide text"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(codeDir, "app.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write code file: %v", err)
+	}
+
+	chromaBackend := newIngestChromaBackend()
+	chromaServer := httptest.NewServer(chromaBackend)
+	defer chromaServer.Close()
+
+	ollamaServer := httptest.NewServer(&ingestOllamaBackend{})
+	defer ollamaServer.Close()
+
+	cfg := &config.Config{
+		DocsDir:          docsDir,
+		CodeDir:          codeDir,
+		CollectionName:   "rag",
+		IndexStateDir:    filepath.Join(root, "index-state"),
+		EmbedModel:       "test-embed",
+		ChunkSize:        200,
+		ChunkOverlap:     20,
+		EnableCodeIngest: true,
+		IndexLimit:       2,
+	}
+	svc := &Service{
+		Config: cfg,
+		Ollama: ollama.New(ollamaServer.URL),
+		Chroma: store.NewChromaClient(chromaServer.URL, "default_tenant", "default_database"),
+	}
+
+	stats, err := svc.Reindex(context.Background())
+	if err != nil {
+		t.Fatalf("Reindex() failed: %v", err)
+	}
+	if stats.Files != 2 || stats.DocsFiles != 2 || stats.CodeFiles != 0 || stats.ChangedFiles != 2 {
+		t.Fatalf("unexpected limited stats: %+v", stats)
+	}
+
+	paths := chromaBackend.sourcePathsForGeneration(stats.Generation)
+	want := []string{"docs/a.md", "docs/b.md"}
+	if strings.Join(paths, ",") != strings.Join(want, ",") {
+		t.Fatalf("indexed source paths = %+v, want %+v", paths, want)
 	}
 }
 
@@ -557,6 +616,28 @@ func (b *ingestChromaBackend) countGeneration(generation string) int {
 		}
 	}
 	return count
+}
+
+func (b *ingestChromaBackend) sourcePathsForGeneration(generation string) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	seen := map[string]struct{}{}
+	for _, record := range b.records {
+		if fmt.Sprint(record.Metadata["index_generation"]) != generation {
+			continue
+		}
+		sourcePath := fmt.Sprint(record.Metadata["source_path"])
+		if sourcePath != "" {
+			seen[sourcePath] = struct{}{}
+		}
+	}
+	paths := make([]string, 0, len(seen))
+	for sourcePath := range seen {
+		paths = append(paths, sourcePath)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func ingestMetadataMatches(metadata map[string]any, where map[string]any) bool {

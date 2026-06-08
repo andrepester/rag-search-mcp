@@ -10,6 +10,11 @@ fresh_index=$(parse_bool_01 "$fresh_index_raw" 0) || {
 	printf '%s\n' 'FRESH_INDEX must be one of: 0,1,true,false,yes,no' >&2
 	exit 2
 }
+index_limit_raw=${INDEX_LIMIT-${RAG_INDEX_LIMIT-0}}
+index_limit=$(parse_non_negative_int "$index_limit_raw" 0) || {
+	printf '%s\n' 'INDEX_LIMIT/RAG_INDEX_LIMIT must be 0 or a positive integer' >&2
+	exit 2
+}
 output=${OUTPUT:-human}
 case "$output" in
 	human|json|logs)
@@ -201,8 +206,11 @@ trap 'cleanup; exit 143' TERM
 if [ "$fresh_index" -eq 1 ]; then
 	printf '%s\n' 'index: FRESH_INDEX=1 requested; resetting the configured Chroma collection before rebuild.' >&2
 fi
+if [ "$index_limit" -gt 0 ]; then
+	printf 'index: INDEX_LIMIT=%s requested; indexing at most %s source documents.\n' "$index_limit" "$index_limit" >&2
+fi
 
-COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c '
+COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_LIMIT="$index_limit" -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c '
 	pid_file="/data/index-state/rag-index-${RAG_INDEX_RUN_TOKEN}.pid"
 	mkdir -p /data/index-state
 	cleanup() {

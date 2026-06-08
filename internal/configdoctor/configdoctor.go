@@ -96,6 +96,7 @@ var defaults = map[string]string{
 	"RAG_CHUNK_OVERLAP":       "200",
 	"RAG_MAX_TOP_K":           "50",
 	"RAG_MAX_SEARCH_DISTANCE": "0.50",
+	"RAG_INDEX_LIMIT":         "0",
 	"RAG_LOG_LEVEL":           "info",
 	"RAG_LOG_FORMAT":          "json",
 }
@@ -189,6 +190,7 @@ func (c *checker) checkRuntimeValues() {
 		c.add(SeverityError, "CHUNK_OVERLAP_RANGE", fmt.Sprintf("RAG_CHUNK_OVERLAP resolves to %d, which is not smaller than RAG_CHUNK_SIZE %d.", chunkOverlap, chunkSize), "Set RAG_CHUNK_OVERLAP to a non-negative value smaller than RAG_CHUNK_SIZE.")
 	}
 	c.checkPositiveInt("RAG_MAX_TOP_K")
+	c.checkNonNegativeInt("RAG_INDEX_LIMIT")
 	c.checkSearchDistance()
 	c.checkHTTPHost()
 	c.checkBool("RAG_ENABLE_CODE_INGEST")

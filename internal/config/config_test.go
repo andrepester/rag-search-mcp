@@ -15,6 +15,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("RAG_MAX_SEARCH_DISTANCE", "0.35")
 	t.Setenv("RAG_ENABLE_CODE_INGEST", "false")
 	t.Setenv("FRESH_INDEX", "true")
+	t.Setenv("RAG_INDEX_LIMIT", "10")
 	t.Setenv("OLLAMA_HOST", "http://ollama.example.internal:11434")
 
 	cfg, err := Load()
@@ -37,6 +38,9 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	if !cfg.FreshIndex {
 		t.Fatal("FreshIndex = false, want true")
 	}
+	if cfg.IndexLimit != 10 {
+		t.Fatalf("IndexLimit = %d, want 10", cfg.IndexLimit)
+	}
 	if !filepath.IsAbs(cfg.DocsDir) || !filepath.IsAbs(cfg.CodeDir) || !filepath.IsAbs(cfg.IndexStateDir) {
 		t.Fatal("expected absolute docs/code/index state paths")
 	}
@@ -55,7 +59,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 }
 
 func TestLoadValidation(t *testing.T) {
-	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_MAX_SEARCH_DISTANCE", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT", "OLLAMA_HOST"} {
+	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_MAX_SEARCH_DISTANCE", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_INDEX_LIMIT", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT", "OLLAMA_HOST"} {
 		_ = os.Unsetenv(key)
 	}
 	t.Setenv("OLLAMA_HOST", "http://ollama.example.internal:11434")
@@ -114,6 +118,17 @@ func TestLoadValidation(t *testing.T) {
 	}
 
 	t.Setenv("FRESH_INDEX", "false")
+	t.Setenv("RAG_INDEX_LIMIT", "not-a-number")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for index limit integer")
+	}
+
+	t.Setenv("RAG_INDEX_LIMIT", "-1")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for index limit range")
+	}
+
+	t.Setenv("RAG_INDEX_LIMIT", "0")
 	t.Setenv("RAG_LOG_LEVEL", "invalid")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected validation error for log level")

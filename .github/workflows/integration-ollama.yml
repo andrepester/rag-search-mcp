@@ -19,6 +19,7 @@ jobs:
     env:
       OLLAMA_HOST: http://host.docker.internal:11434
       EMBED_MODEL: nomic-embed-text
+      INDEX_LIMIT: 10
 
     steps:
       - name: Checkout
