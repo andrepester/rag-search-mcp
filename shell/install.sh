@@ -1,8 +1,10 @@
 #!/bin/sh
 set -eu
 
+. ./shell/lib.sh
+
 compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
-compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
+compose_file=$(effective_compose_file)
 
 sh ./shell/install-bootstrap.sh
 sh ./shell/config-doctor.sh
@@ -11,18 +13,17 @@ COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./she
 
 i=1
 while [ "$i" -le 60 ]; do
-	if docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T ollama ollama list >/dev/null 2>&1; then
+	if COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" exec -T rag-mcp sh -lc 'wget -qO- "${OLLAMA_HOST%/}/api/tags" >/dev/null'; then
 		break
 	fi
 	if [ "$i" -eq 60 ]; then
-		printf '%s\n' 'ollama did not become ready in time' >&2
+		printf 'shared ollama host did not become ready in time: %s\n' "$(resolve_ollama_host)" >&2
 		exit 1
 	fi
 	sleep 2
 	i=$((i + 1))
 done
+printf 'install: using shared OLLAMA_HOST=%s; manage model installation outside this stack\n' "$(resolve_ollama_host)" >&2
 
-model=${EMBED_MODEL:-nomic-embed-text}
-docker compose --project-directory "$compose_project_dir" -f "$compose_file" exec -T ollama ollama pull "$model"
 FRESH_INDEX="${FRESH_INDEX-0}" COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/index.sh
 COMPOSE_PROJECT_DIR="$compose_project_dir" COMPOSE_FILE="$compose_file" sh ./shell/doctor-verify-index.sh

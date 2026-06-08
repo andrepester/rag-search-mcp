@@ -86,7 +86,7 @@ func DependencyHint(name string) string {
 	case "chroma":
 		return "check the chroma service, RAG_CHROMA_URL, tenant, database, and collection settings"
 	case "ollama":
-		return "check the ollama service, OLLAMA_HOST, and embedding model availability"
+		return "check the shared ollama host, OLLAMA_HOST, and embedding model availability"
 	default:
 		return "check the dependent service configuration and container status"
 	}

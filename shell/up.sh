@@ -1,8 +1,10 @@
 #!/bin/sh
 set -eu
 
+. ./shell/lib.sh
+
 compose_project_dir=${COMPOSE_PROJECT_DIR:-.}
-compose_file=${COMPOSE_FILE:-docker/docker-compose.yml}
+compose_file=$(effective_compose_file)
 
 if [ "${COMPOSE_UP_FLAGS+x}" = x ] && [ "$COMPOSE_UP_FLAGS" != "auto" ]; then
 	compose_up_flags=$COMPOSE_UP_FLAGS
@@ -17,4 +19,4 @@ else
 	esac
 fi
 
-docker compose --project-directory "$compose_project_dir" -f "$compose_file" up -d --build $compose_up_flags
+COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" up -d --build --remove-orphans $compose_up_flags

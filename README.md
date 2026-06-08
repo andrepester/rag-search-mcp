@@ -18,7 +18,7 @@ Key capabilities:
 - Semantic retrieval across docs and code through one MCP endpoint
 - Scope-aware search with `all`, `docs`, and `code`
 - Docker-based runtime with host-mounted source directories
-- Persistent host storage for index and embedding models
+- Persistent host storage for the Chroma index
 - Operational `make` targets for install, indexing, diagnostics, and testing
 
 ## Architecture
@@ -27,7 +27,7 @@ Key capabilities:
 flowchart TD
     A["Mounted data/docs/"] --> B["rag-index"]
     C["Mounted data/code/ (can be empty)"] --> B
-    B --> D["Ollama embeddings"]
+    B --> D["Shared Ollama host"]
     D --> E["Chroma collection: rag"]
     B --> H["Active index generation pointer"]
 
@@ -64,7 +64,7 @@ make install
 2. Resolves and persists source directory settings
 3. Prints the local MCP endpoint for manual client configuration
 4. Starts the Docker stack
-5. Pulls the embedding model into Ollama
+5. Verifies the configured shared Ollama host is reachable
 6. Rebuilds the semantic index
 7. Verifies the indexed data
 
@@ -97,7 +97,7 @@ In that layout, run `make install` from `main/rag-search-mcp` and point the moun
 HOST_DOCS_DIR=../docs HOST_CODE_DIR=../code make install
 ```
 
-Persistent runtime data stays on the host under `data/` by default, or under the paths set via `HOST_INDEX_DIR` and `HOST_MODELS_DIR`.
+Persistent index data stays on the host under `data/` by default, or under the path set via `HOST_INDEX_DIR`.
 
 ### Interactive install behavior
 
@@ -107,13 +107,18 @@ In an interactive terminal, `make install` prompts for source directory selectio
 - Use standard paths: `./data/docs` and `./data/code`
 - Enter custom paths
 
+It also prompts for `OLLAMA_HOST`. The current value from the process
+environment or `.env` is offered as the default.
+
 Path resolution precedence is:
 
 1. Process environment
 2. `.env`
 3. Built-in defaults
 
-The selected docs and code paths are written to `.env` before Docker starts.
+The selected docs/code paths and `OLLAMA_HOST` are merged into `.env` before
+Docker starts. If `.env` does not exist yet, it is created from `.env.example`
+first.
 
 ## Usage
 
@@ -215,8 +220,8 @@ client template.
 
 | Target | Purpose |
 |---|---|
-| `make install` | Bootstrap config, start the stack, pull the model, index, verify data |
-| `make clean-install` | Reinstall the stack; preserves index and models by default |
+| `make install` | Bootstrap config, start the stack, verify the shared Ollama host, index, verify data |
+| `make clean-install` | Reinstall the stack; preserves the index by default |
 | `make up` | Start the runtime stack in detached mode |
 | `make down` | Stop the runtime stack without removing containers |
 | `make test` | Run Go tests through the Dockerfile `go-runner` stage |
@@ -260,7 +265,7 @@ logs, or `make index OUTPUT=json` to print one machine-readable result object
 for automation. Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode
 resets the configured Chroma collection before rebuilding, so unchanged sources
 are embedded again and old index records are not reused. It does not remove
-Ollama models or mounted source data from `HOST_DOCS_DIR` or `HOST_CODE_DIR`.
+mounted source data from `HOST_DOCS_DIR` or `HOST_CODE_DIR`.
 Because it resets the active collection before rebuilding, searches may return
 no current index results until the fresh run completes.
 After changing `rag-index` code, run `make up` once before `make index` so the
@@ -281,16 +286,16 @@ make clean-install
 make clean-install FULL_RESET=1
 ```
 
-`make clean-install FULL_RESET=1` permanently deletes the host directories resolved from `HOST_INDEX_DIR` and `HOST_MODELS_DIR` before reinstalling.
+`make clean-install FULL_RESET=1` permanently deletes the host directory resolved from `HOST_INDEX_DIR` before reinstalling.
 The reinstall's index step automatically runs with `FRESH_INDEX=1`.
 
 ### Observability baseline
 
 `rag-mcp` and `rag-index --output=logs` write structured runtime logs to stdout.
 Docker Compose collects stdout and stderr from all containers, so `make logs`
-shows the structured runtime logs together with Chroma and Ollama container
-output. Chroma and Ollama log formats are owned by those images and are not
-normalized by this project. `RAG_LOG_FORMAT` controls runtime log rendering only;
+shows the structured runtime logs together with Chroma container output. Chroma
+log formatting is owned by that image and is not normalized by this project.
+`RAG_LOG_FORMAT` controls runtime log rendering only;
 it is separate from the `make index OUTPUT=human|json|logs` CLI presentation mode.
 
 Runtime logs are JSON by default and use stable event names:
@@ -366,7 +371,6 @@ boundary.
 | `HOST_DOCS_DIR` | `./data/docs` | Host path mounted as docs source |
 | `HOST_CODE_DIR` | `./data/code` | Host path mounted as code source |
 | `HOST_INDEX_DIR` | `./data/index` | Host path used for Chroma persistence |
-| `HOST_MODELS_DIR` | `./data/models` | Host path used for Ollama model persistence |
 | `RAG_ENABLE_CODE_INGEST` | `true` | Enable or disable code ingestion |
 | `RAG_CHROMA_TENANT` | `default_tenant` | Chroma tenant |
 | `RAG_CHROMA_DATABASE` | `default_database` | Chroma database |
@@ -379,14 +383,25 @@ boundary.
 | `RAG_MAX_SEARCH_DISTANCE` | `0.50` | Default semantic distance threshold for search relevance; lower is stricter, higher shows more matches |
 | `RAG_LOG_LEVEL` | `info` | Runtime log level: `debug`, `info`, `warn`, or `error` |
 | `RAG_LOG_FORMAT` | `json` | Runtime log format for `rag-mcp` and `rag-index`: `json` or `text` |
-| `OLLAMA_HOST` | `http://ollama:11434` | Embedding endpoint used by `rag-mcp` |
-| `OLLAMA_PORT` | `11434` | Host port mapped to the Ollama container |
+| `OLLAMA_HOST` | required | Shared Ollama HTTP endpoint used by `rag-mcp`; this stack does not start or manage Ollama |
 | `EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
 
 Shell workflows resolve the `HOST_*` path variables through the shared resolver
 in `shell/lib.sh`, using process environment first, then `.env`, then the
 built-in defaults above. Relative paths are resolved from the repository root
 before Docker bind mounts or `FULL_RESET` safety checks are applied.
+
+`make up` starts only `rag-mcp` and Chroma. Configure a shared Ollama endpoint
+before starting the stack:
+
+```env
+OLLAMA_HOST=http://ollama.example.internal:11434
+```
+
+Model installation is managed outside this Compose stack. Ensure the configured
+`EMBED_MODEL` exists on the shared Ollama host.
+During `make install`, the configured `OLLAMA_HOST` is written or merged into
+`.env` before the runtime checks run.
 
 ### Skill template
 
@@ -455,7 +470,7 @@ GitHub Actions workflows:
 - `ci-fast`: `host-portability` on Ubuntu/macOS, plus Ubuntu `container-only-go`, `fmt`, `mod-tidy`, `vet`, `test`, `golden-queries`, `build`, `bootstrap-smoke`, `compose-validate`, and non-required `docker-test-stage`
 - `security-baseline`: `gitleaks`, runtime `govulncheck`, and `toolchain-security`
 - `dependency-review`: PR dependency diff review for new high or critical vulnerability findings
-- `integration-ollama`: full runtime startup via `make install` with health smoke checks
+- `integration-ollama`: full runtime startup against a configured shared Ollama host with health smoke checks
 - `supply-chain`: container policy guard, SBOM generation, license allowlist gate, and filesystem/image vulnerability scans
 
 Recommended required checks for branch protection:
@@ -564,8 +579,9 @@ rerun `make doctor`.
 
 Check the `dependency` and `hint` fields in the `dependency_unhealthy` log event.
 For Chroma issues, verify the `chroma` container, `RAG_CHROMA_*` settings, and
-index persistence path. For Ollama issues, verify the `ollama` container,
-`OLLAMA_HOST`, and whether the embedding model has been pulled.
+index persistence path. For Ollama issues, verify `OLLAMA_HOST`, network
+reachability from `rag-mcp`, and whether the configured embedding model exists
+on the shared Ollama host.
 
 Run the full diagnostic path after fixing dependencies:
 
@@ -581,10 +597,10 @@ Use:
 make clean-install FULL_RESET=1
 ```
 
-This deletes the resolved host paths for index and model persistence before reinstalling.
-The paths may point to new locations; `clean-install` creates missing parent directories while resolving them, then removes only the resolved `HOST_INDEX_DIR` and `HOST_MODELS_DIR` targets.
+This deletes the resolved host path for index persistence before reinstalling.
+The path may point to a new location; `clean-install` creates missing parent directories while resolving it, then removes only the resolved `HOST_INDEX_DIR` target.
 Unsafe broad paths such as `/`, the repository root or parent, and `HOME` are refused.
-For an index-only reset without deleting persisted Ollama models, use `make index FRESH_INDEX=1`.
+For a collection reset without deleting host index files, use `make index FRESH_INDEX=1`.
 
 ### Can I expose the service beyond localhost?
 

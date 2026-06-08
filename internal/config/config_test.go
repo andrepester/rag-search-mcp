@@ -15,6 +15,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("RAG_MAX_SEARCH_DISTANCE", "0.35")
 	t.Setenv("RAG_ENABLE_CODE_INGEST", "false")
 	t.Setenv("FRESH_INDEX", "true")
+	t.Setenv("OLLAMA_HOST", "http://ollama.example.internal:11434")
 
 	cfg, err := Load()
 	if err != nil {
@@ -54,9 +55,10 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 }
 
 func TestLoadValidation(t *testing.T) {
-	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_MAX_SEARCH_DISTANCE", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT"} {
+	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_MAX_SEARCH_DISTANCE", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT", "OLLAMA_HOST"} {
 		_ = os.Unsetenv(key)
 	}
+	t.Setenv("OLLAMA_HOST", "http://ollama.example.internal:11434")
 
 	t.Setenv("RAG_CHUNK_SIZE", "10")
 	t.Setenv("RAG_CHUNK_OVERLAP", "10")
@@ -121,5 +123,11 @@ func TestLoadValidation(t *testing.T) {
 	t.Setenv("RAG_LOG_FORMAT", "yaml")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected validation error for log format")
+	}
+
+	t.Setenv("RAG_LOG_FORMAT", "json")
+	t.Setenv("OLLAMA_HOST", " ")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for missing ollama host")
 	}
 }

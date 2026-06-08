@@ -113,7 +113,6 @@ func newConfigDoctorCLIRepo(t *testing.T) string {
 		filepath.Join(repoRoot, "data", "docs"),
 		filepath.Join(repoRoot, "data", "code"),
 		filepath.Join(repoRoot, "data", "index"),
-		filepath.Join(repoRoot, "data", "models"),
 		filepath.Join(repoRoot, "docker"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -126,10 +125,8 @@ func newConfigDoctorCLIRepo(t *testing.T) string {
 		"HOST_DOCS_DIR=./data/docs",
 		"HOST_CODE_DIR=./data/code",
 		"HOST_INDEX_DIR=./data/index",
-		"HOST_MODELS_DIR=./data/models",
-		"OLLAMA_HOST=http://ollama:11434",
+		"OLLAMA_HOST=http://ollama.example.internal:11434",
 		"EMBED_MODEL=nomic-embed-text",
-		"OLLAMA_PORT=11434",
 		"RAG_ENABLE_CODE_INGEST=true",
 		"RAG_CHROMA_TENANT=default_tenant",
 		"RAG_CHROMA_DATABASE=default_database",
@@ -142,10 +139,7 @@ func newConfigDoctorCLIRepo(t *testing.T) string {
 		"",
 	}, "\n"))
 	writeCLIFile(t, filepath.Join(repoRoot, "docker", "docker-compose.yml"), 0o644, `services:
-  ollama:
-    ports:
-      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
-  rag-mcp:
+ rag-mcp:
     ports:
       - "${RAG_HTTP_HOST:-127.0.0.1}:${RAG_HTTP_PORT:-8765}:8765"
 `)

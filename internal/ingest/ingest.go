@@ -93,7 +93,7 @@ var codeExt = map[string]struct{}{
 }
 
 const (
-	embedBatchSize       = 8
+	embedBatchSize       = 16
 	chromaWriteBatchSize = 32
 )
 

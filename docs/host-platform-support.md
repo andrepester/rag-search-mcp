@@ -60,7 +60,7 @@ make down
 
 `make install`, `make doctor`, `make index`, and `make clean-install` require
 a working Docker daemon, image pulls, bind mounts, and enough local disk space
-for Chroma and Ollama model data.
+for Chroma index data.
 
 ## CI Coverage
 
@@ -74,9 +74,9 @@ runtime evidence should be captured in the PR body using the smoke plan above.
 
 ## Known Limits
 
-- `HOST_DOCS_DIR`, `HOST_CODE_DIR`, `HOST_INDEX_DIR`, and `HOST_MODELS_DIR`
-  should resolve to directories visible to Docker. On macOS Docker Desktop,
-  paths outside shared file roots will fail at mount time.
+- `HOST_DOCS_DIR`, `HOST_CODE_DIR`, and `HOST_INDEX_DIR` should resolve to
+  directories visible to Docker. On macOS Docker Desktop, paths outside shared
+  file roots will fail at mount time.
 - WSL2 works best when the repository and data directories live in the distro
   filesystem, not under `/mnt/c`.
 - File ownership can differ between native Linux and Docker Desktop. The

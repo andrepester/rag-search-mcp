@@ -3,26 +3,30 @@ set -eu
 
 . ./shell/lib.sh
 
-host_repo=$(pwd -P)
-host_parent=$(dirname "$host_repo")
-repo_name=$(basename "$host_repo")
-
-docs_value=$(resolve_host_path HOST_DOCS_DIR)
-code_value=$(resolve_host_path HOST_CODE_DIR)
-persist_source_dirs=0
 force_interactive_raw=${INSTALL_BOOTSTRAP_FORCE_INTERACTIVE-}
 force_interactive=$(parse_bool_01 "$force_interactive_raw" 0) || {
 	printf '%s\n' "invalid INSTALL_BOOTSTRAP_FORCE_INTERACTIVE '$force_interactive_raw' (expected 1/0/true/false/yes/no)" >&2
 	exit 2
 }
 
+host_repo=$(pwd -P)
+host_parent=$(dirname "$host_repo")
+repo_name=$(basename "$host_repo")
+
 if [ ! -f .env ]; then
 	cp .env.example .env
 	chmod 600 .env
 fi
 
+docs_value=$(resolve_host_path HOST_DOCS_DIR)
+code_value=$(resolve_host_path HOST_CODE_DIR)
+ollama_host_value=$(resolve_ollama_host)
+persist_source_dirs=0
+persist_ollama_host=0
+
 if [ "$force_interactive" -eq 1 ] || { [ -t 0 ] && [ -t 1 ]; }; then
 	persist_source_dirs=1
+	persist_ollama_host=1
 	printf '%s\n' "Current HOST_DOCS_DIR=$docs_value"
 	printf '%s\n' "Current HOST_CODE_DIR=$code_value"
 	printf '%s' 'Keep current [K], use standard (./data/docs + ./data/code) [s], or enter custom [c]? [K/s/c]: '
@@ -56,14 +60,32 @@ if [ "$force_interactive" -eq 1 ] || { [ -t 0 ] && [ -t 1 ]; }; then
 			exit 2
 			;;
 	esac
+
+	if is_non_empty_non_ws "$ollama_host_value"; then
+		printf 'Enter OLLAMA_HOST [%s]: ' "$ollama_host_value"
+	else
+		printf '%s' 'Enter OLLAMA_HOST: '
+	fi
+	IFS= read -r custom_ollama_host || true
+	if is_non_empty_non_ws "$custom_ollama_host"; then
+		ollama_host_value="$custom_ollama_host"
+	elif ! is_non_empty_non_ws "$ollama_host_value"; then
+		printf '%s\n' 'OLLAMA_HOST must not be empty' >&2
+		exit 2
+	fi
+elif is_non_empty_non_ws "${OLLAMA_HOST-}"; then
+	persist_ollama_host=1
 fi
 
 if [ "$persist_source_dirs" -eq 1 ]; then
 	upsert_env_value HOST_DOCS_DIR "$docs_value"
 	upsert_env_value HOST_CODE_DIR "$code_value"
 fi
+if [ "$persist_ollama_host" -eq 1 ] && is_non_empty_non_ws "$ollama_host_value"; then
+	upsert_env_value OLLAMA_HOST "$ollama_host_value"
+fi
 
-set -- docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e RAG_HTTP_PORT -e HOST_DOCS_DIR -e HOST_CODE_DIR -e HOST_INDEX_DIR -e HOST_MODELS_DIR -v "$host_parent:/workspace-parent" -w "/workspace-parent/$repo_name"
+set -- docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e RAG_HTTP_PORT -e HOST_DOCS_DIR -e HOST_CODE_DIR -e HOST_INDEX_DIR -v "$host_parent:/workspace-parent" -w "/workspace-parent/$repo_name"
 for key in $(host_path_keys); do
 	resolved_abs=$(ensure_host_path_abs_dir "$host_repo" "$key")
 	set -- "$@" -e "$key=$resolved_abs" -v "$resolved_abs:$resolved_abs"
