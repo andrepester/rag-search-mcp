@@ -10,7 +10,11 @@ fresh_index=$(parse_bool_01 "$fresh_index_raw" 0) || {
 	printf '%s\n' 'FRESH_INDEX must be one of: 0,1,true,false,yes,no' >&2
 	exit 2
 }
-index_limit_raw=${INDEX_LIMIT-${RAG_INDEX_LIMIT-0}}
+if is_non_empty_non_ws "${INDEX_LIMIT-}"; then
+	index_limit_raw=${INDEX_LIMIT-}
+else
+	index_limit_raw=$(resolve_host_override RAG_INDEX_LIMIT 0)
+fi
 index_limit=$(parse_non_negative_int "$index_limit_raw" 0) || {
 	printf '%s\n' 'INDEX_LIMIT/RAG_INDEX_LIMIT must be 0 or a positive integer' >&2
 	exit 2

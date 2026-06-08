@@ -4,7 +4,7 @@
 
 FULL_RESET ?= 0
 FRESH_INDEX ?= 0
-INDEX_LIMIT ?= 0
+INDEX_LIMIT ?=
 OUTPUT ?= human
 COMPOSE_PROJECT_DIR ?= .
 COMPOSE_FILE ?= docker/docker-compose.yml
