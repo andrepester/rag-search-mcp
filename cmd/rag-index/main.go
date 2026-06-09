@@ -196,7 +196,7 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 	retryCtx, cancel := context.WithTimeout(ctx, cfg.ReindexTimeout)
 	defer cancel()
 
-	run, err := reindexjob.New(cfg.IndexStateDir).Start(ctx, reindexjob.TriggerCLI)
+	run, err := reindexjob.New(cfg.IndexStateDir).StartWithOptions(ctx, reindexjob.TriggerCLI, reindexjob.StartOptions{IndexSubdir: cfg.IndexSubdir})
 	if err != nil {
 		return reindexResult{}, err
 	}
@@ -212,6 +212,7 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 		slog.Bool("code_ingest", cfg.EnableCodeIngest),
 		slog.Bool("fresh_index", cfg.FreshIndex),
 		slog.Int("index_limit", cfg.IndexLimit),
+		slog.String("index_subdir", cfg.IndexSubdir),
 		slog.Int("embed_concurrency", cfg.EmbedConcurrency),
 		slog.Int("embed_num_threads", cfg.EmbedNumThreads),
 		slog.String("collection", cfg.CollectionName),
@@ -257,6 +258,7 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 		slog.Int("embedded_chunks", stats.EmbeddedChunks),
 		slog.Int("reused_chunks", stats.ReusedChunks),
 		slog.String("generation", stats.Generation),
+		slog.String("index_subdir", stats.IndexSubdir),
 		slog.String("job_id", run.Job.ID),
 		slog.Int64("duration_ms", result.Duration.Milliseconds()),
 	)
@@ -300,7 +302,7 @@ func componentLogger(logger *slog.Logger, component string) *slog.Logger {
 }
 
 func renderHumanResult(stdout io.Writer, result reindexResult) error {
-	_, err := fmt.Fprintf(stdout,
+	if _, err := fmt.Fprintf(stdout,
 		"index: complete\njob: %s\nduration: %s\nfiles: %d total, %d docs, %d code\nchunks: %d total, %d embedded, %d reused\nchanges: %d changed, %d deleted, %d reused files\ngeneration: %s\n",
 		result.Job.ID,
 		result.Duration.Round(time.Millisecond),
@@ -314,8 +316,14 @@ func renderHumanResult(stdout io.Writer, result reindexResult) error {
 		result.Stats.DeletedFiles,
 		result.Stats.ReusedFiles,
 		result.Stats.Generation,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if result.Stats.IndexSubdir != "" {
+		_, err := fmt.Fprintf(stdout, "index_subdir: %s\n", result.Stats.IndexSubdir)
+		return err
+	}
+	return nil
 }
 
 func renderJSONResult(stdout io.Writer, result reindexResult) error {

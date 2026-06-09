@@ -32,12 +32,17 @@ type Coordinator struct {
 	Dir string
 }
 
+type StartOptions struct {
+	IndexSubdir string
+}
+
 type Job struct {
-	ID        string `json:"job_id"`
-	Trigger   string `json:"trigger"`
-	PID       int    `json:"pid"`
-	Hostname  string `json:"hostname,omitempty"`
-	StartedAt string `json:"started_at"`
+	ID          string `json:"job_id"`
+	Trigger     string `json:"trigger"`
+	PID         int    `json:"pid"`
+	Hostname    string `json:"hostname,omitempty"`
+	StartedAt   string `json:"started_at"`
+	IndexSubdir string `json:"index_subdir,omitempty"`
 }
 
 type Status struct {
@@ -72,6 +77,7 @@ type RunRecord struct {
 	EmbeddedChunks     int    `json:"embedded_chunks,omitempty"`
 	ReusedChunks       int    `json:"reused_chunks,omitempty"`
 	Generation         string `json:"generation,omitempty"`
+	IndexSubdir        string `json:"index_subdir,omitempty"`
 	Error              string `json:"error,omitempty"`
 }
 
@@ -98,9 +104,13 @@ func New(dir string) *Coordinator {
 	return &Coordinator{Dir: dir}
 }
 
-func (c *Coordinator) Start(_ context.Context, trigger string) (*Run, error) {
+func (c *Coordinator) Start(ctx context.Context, trigger string) (*Run, error) {
+	return c.StartWithOptions(ctx, trigger, StartOptions{})
+}
+
+func (c *Coordinator) StartWithOptions(_ context.Context, trigger string, opts StartOptions) (*Run, error) {
 	trigger = normalizeTrigger(trigger)
-	job := newJob(trigger, time.Now().UTC())
+	job := newJob(trigger, time.Now().UTC(), opts.IndexSubdir)
 	lock, err := c.tryAcquireReindexLock()
 	if err != nil {
 		if errors.Is(err, errLockBusy) {
@@ -324,6 +334,10 @@ func runRecord(job Job, stats ingest.Stats, runErr error, completedAt time.Time)
 		status = StatusFailed
 		errText = runErr.Error()
 	}
+	indexSubdir := stats.IndexSubdir
+	if indexSubdir == "" {
+		indexSubdir = job.IndexSubdir
+	}
 	processedDocuments := stats.Files
 	if runErr != nil {
 		processedDocuments = stats.ChangedFiles + stats.ReusedFiles
@@ -345,18 +359,20 @@ func runRecord(job Job, stats ingest.Stats, runErr error, completedAt time.Time)
 		EmbeddedChunks:     stats.EmbeddedChunks,
 		ReusedChunks:       stats.ReusedChunks,
 		Generation:         stats.Generation,
+		IndexSubdir:        indexSubdir,
 		Error:              errText,
 	}
 }
 
-func newJob(trigger string, now time.Time) Job {
+func newJob(trigger string, now time.Time, indexSubdir string) Job {
 	hostname, _ := os.Hostname()
 	return Job{
-		ID:        fmt.Sprintf("reindex-%s-%d", now.Format("20060102T150405.000000000Z"), os.Getpid()),
-		Trigger:   trigger,
-		PID:       os.Getpid(),
-		Hostname:  hostname,
-		StartedAt: now.Format(time.RFC3339Nano),
+		ID:          fmt.Sprintf("reindex-%s-%d", now.Format("20060102T150405.000000000Z"), os.Getpid()),
+		Trigger:     trigger,
+		PID:         os.Getpid(),
+		Hostname:    hostname,
+		StartedAt:   now.Format(time.RFC3339Nano),
+		IndexSubdir: strings.TrimSpace(indexSubdir),
 	}
 }
 

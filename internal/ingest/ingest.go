@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -39,6 +40,7 @@ type Stats struct {
 	EmbeddedChunks int    `json:"embedded_chunks"`
 	ReusedChunks   int    `json:"reused_chunks"`
 	Generation     string `json:"generation"`
+	IndexSubdir    string `json:"index_subdir,omitempty"`
 }
 
 type DocumentProgress struct {
@@ -128,8 +130,12 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 
 	activeGeneration := activeManifest.ActiveGeneration
 	buildGeneration := strings.TrimSpace(activeManifest.ResumeGeneration)
+	requestedIndexSubdir := strings.TrimSpace(s.Config.IndexSubdir)
 	effectiveFreshIndex := s.Config.FreshIndex
 	if buildGeneration != "" {
+		if strings.TrimSpace(activeManifest.ResumeIndexSubdir) != requestedIndexSubdir {
+			return stats, fmt.Errorf("resume generation %s was started with RAG_INDEX_SUBDIR=%s; current RAG_INDEX_SUBDIR=%s; rerun with the matching INDEX_SUBDIR value or clear the incomplete resume generation before changing the selection", buildGeneration, displayIndexSubdir(activeManifest.ResumeIndexSubdir), displayIndexSubdir(requestedIndexSubdir))
+		}
 		effectiveFreshIndex = activeManifest.ResumeFreshIndex
 		if s.Config.FreshIndex && !activeManifest.ResumeFreshIndex {
 			buildGeneration = ""
@@ -141,6 +147,7 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 		activeManifest.CollectionName = s.Config.CollectionName
 		activeManifest.ResumeGeneration = buildGeneration
 		activeManifest.ResumeFreshIndex = s.Config.FreshIndex
+		activeManifest.ResumeIndexSubdir = requestedIndexSubdir
 		if activeManifest.Sources == nil {
 			activeManifest.Sources = map[string]indexstate.SourceManifest{}
 		}
@@ -176,9 +183,10 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 	}
 
 	nextManifest := indexstate.Manifest{
-		CollectionName:   s.Config.CollectionName,
-		ActiveGeneration: buildGeneration,
-		Sources:          nextSources,
+		CollectionName:    s.Config.CollectionName,
+		ActiveGeneration:  buildGeneration,
+		ActiveIndexSubdir: requestedIndexSubdir,
+		Sources:           nextSources,
 	}
 	if err := stateStore.Save(nextManifest); err != nil {
 		return stats, err
@@ -543,18 +551,27 @@ func writeBatches(ctx context.Context, chroma *store.ChromaClient, collectionID 
 
 func (s *Service) loadDocuments() ([]document, Stats, error) {
 	out := make([]document, 0)
+	stats := Stats{IndexSubdir: strings.TrimSpace(s.Config.IndexSubdir)}
 
-	if docs, err := loadScopeDocuments(s.Config.DocsDir, "docs", docsExt); err != nil {
-		return nil, Stats{}, err
-	} else {
+	if s.Config.IndexSubdir != "" {
+		docs, err := s.loadIndexSubdirDocuments()
+		if err != nil {
+			return nil, stats, err
+		}
 		out = append(out, docs...)
-	}
-
-	if s.Config.EnableCodeIngest {
-		if code, err := loadScopeDocuments(s.Config.CodeDir, "code", codeExt); err != nil {
-			return nil, Stats{}, err
+	} else {
+		if docs, err := loadScopeDocuments(s.Config.DocsDir, "docs", docsExt, ""); err != nil {
+			return nil, stats, err
 		} else {
-			out = append(out, code...)
+			out = append(out, docs...)
+		}
+
+		if s.Config.EnableCodeIngest {
+			if code, err := loadScopeDocuments(s.Config.CodeDir, "code", codeExt, ""); err != nil {
+				return nil, stats, err
+			} else {
+				out = append(out, code...)
+			}
 		}
 	}
 
@@ -562,7 +579,27 @@ func (s *Service) loadDocuments() ([]document, Stats, error) {
 		out = out[:s.Config.IndexLimit]
 	}
 
-	return out, documentStats(out), nil
+	stats = documentStats(out)
+	stats.IndexSubdir = strings.TrimSpace(s.Config.IndexSubdir)
+	return out, stats, nil
+}
+
+func (s *Service) loadIndexSubdirDocuments() ([]document, error) {
+	scope, rel, ok := splitIndexSubdir(s.Config.IndexSubdir)
+	if !ok {
+		return nil, fmt.Errorf("RAG_INDEX_SUBDIR must start with docs/ or code/ followed by a subdirectory")
+	}
+	switch scope {
+	case "docs":
+		return loadScopeDocuments(s.Config.DocsDir, "docs", docsExt, rel)
+	case "code":
+		if !s.Config.EnableCodeIngest {
+			return nil, fmt.Errorf("RAG_INDEX_SUBDIR=%s requires RAG_ENABLE_CODE_INGEST=true", s.Config.IndexSubdir)
+		}
+		return loadScopeDocuments(s.Config.CodeDir, "code", codeExt, rel)
+	default:
+		return nil, fmt.Errorf("RAG_INDEX_SUBDIR must start with docs/ or code/")
+	}
 }
 
 func documentStats(docs []document) Stats {
@@ -578,25 +615,43 @@ func documentStats(docs []document) Stats {
 	return stats
 }
 
-func loadScopeDocuments(root, scope string, allowedExt map[string]struct{}) ([]document, error) {
+func loadScopeDocuments(root, scope string, allowedExt map[string]struct{}, subdir string) ([]document, error) {
 	if strings.TrimSpace(root) == "" {
+		if subdir != "" {
+			return nil, fmt.Errorf("%s root is empty for RAG_INDEX_SUBDIR=%s/%s", scope, scope, subdir)
+		}
 		return nil, nil
 	}
 
-	if _, err := os.Stat(root); err != nil {
+	info, err := os.Stat(root)
+	if err != nil {
 		if os.IsNotExist(err) {
+			if subdir != "" {
+				return nil, fmt.Errorf("%s root does not exist for RAG_INDEX_SUBDIR=%s/%s", scope, scope, subdir)
+			}
 			return nil, nil
 		}
 		return nil, fmt.Errorf("stat %s directory: %w", scope, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s root %s is not a directory", scope, root)
 	}
 
 	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve %s root: %w", scope, err)
 	}
+	walkRoot := root
+	if subdir != "" {
+		target, err := validateIndexSubdirTarget(root, resolvedRoot, scope, subdir)
+		if err != nil {
+			return nil, err
+		}
+		walkRoot = target
+	}
 
 	docs := make([]document, 0)
-	err = filepath.WalkDir(root, func(filePath string, d os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(walkRoot, func(filePath string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -652,6 +707,58 @@ func loadScopeDocuments(root, scope string, allowedExt map[string]struct{}) ([]d
 	}
 
 	return docs, nil
+}
+
+func validateIndexSubdirTarget(root, resolvedRoot, scope, subdir string) (string, error) {
+	target := filepath.Join(root, filepath.FromSlash(subdir))
+	info, err := os.Lstat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("RAG_INDEX_SUBDIR=%s/%s does not exist", scope, subdir)
+		}
+		return "", fmt.Errorf("stat RAG_INDEX_SUBDIR=%s/%s: %w", scope, subdir, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("RAG_INDEX_SUBDIR=%s/%s must not be a symlink", scope, subdir)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("RAG_INDEX_SUBDIR=%s/%s is not a directory", scope, subdir)
+	}
+	resolvedTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return "", fmt.Errorf("resolve RAG_INDEX_SUBDIR=%s/%s: %w", scope, subdir, err)
+	}
+	if !resolvedPathWithinRoot(resolvedRoot, resolvedTarget) {
+		return "", fmt.Errorf("RAG_INDEX_SUBDIR=%s/%s escapes the configured %s root", scope, subdir, scope)
+	}
+	return target, nil
+}
+
+func splitIndexSubdir(indexSubdir string) (scope, rel string, ok bool) {
+	trimmed := strings.TrimSpace(indexSubdir)
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	if normalized == "" || path.IsAbs(normalized) || filepath.IsAbs(trimmed) {
+		return "", "", false
+	}
+	for _, segment := range strings.Split(normalized, "/") {
+		if segment == ".." {
+			return "", "", false
+		}
+	}
+	cleaned := path.Clean(normalized)
+	scope, rel, ok = strings.Cut(cleaned, "/")
+	if !ok || rel == "" || scope == "" {
+		return "", "", false
+	}
+	return scope, rel, true
+}
+
+func displayIndexSubdir(indexSubdir string) string {
+	indexSubdir = strings.TrimSpace(indexSubdir)
+	if indexSubdir == "" {
+		return "<full-index>"
+	}
+	return indexSubdir
 }
 
 func resolvedPathWithinRoot(rootResolvedPath, fileResolvedPath string) bool {

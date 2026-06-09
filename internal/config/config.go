@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ type Config struct {
 	EnableCodeIngest  bool
 	FreshIndex        bool
 	IndexLimit        int
+	IndexSubdir       string
 	EmbedConcurrency  int
 	EmbedNumThreads   int
 	ReindexTimeout    time.Duration
@@ -101,6 +103,13 @@ func Load() (Config, error) {
 	}
 	if indexLimit < 0 {
 		return Config{}, fmt.Errorf("RAG_INDEX_LIMIT must be >= 0")
+	}
+	indexSubdir, err := envIndexSubdir("RAG_INDEX_SUBDIR")
+	if err != nil {
+		return Config{}, err
+	}
+	if indexSubdir != "" && strings.HasPrefix(indexSubdir, "code/") && !enableCodeIngest {
+		return Config{}, fmt.Errorf("RAG_INDEX_SUBDIR uses code scope but RAG_ENABLE_CODE_INGEST is disabled")
 	}
 	embedConcurrency, err := envInt("RAG_EMBED_CONCURRENCY", DefaultEmbedConcurrency)
 	if err != nil {
@@ -179,6 +188,7 @@ func Load() (Config, error) {
 		EnableCodeIngest:  enableCodeIngest,
 		FreshIndex:        freshIndex,
 		IndexLimit:        indexLimit,
+		IndexSubdir:       indexSubdir,
 		EmbedConcurrency:  embedConcurrency,
 		EmbedNumThreads:   embedNumThreads,
 		ReindexTimeout:    reindexTimeout,
@@ -230,6 +240,41 @@ func envDuration(key string, fallback string) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a duration such as 60m or 1h", key)
 	}
 	return value, nil
+}
+
+func envIndexSubdir(key string) (string, error) {
+	raw, ok := os.LookupEnv(key)
+	if !ok {
+		return "", nil
+	}
+	return normalizeIndexSubdir(key, raw)
+}
+
+func normalizeIndexSubdir(key, raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("%s must not be empty when set", key)
+	}
+
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	if path.IsAbs(normalized) || filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("%s must be a scoped relative directory such as docs/demo/technology or code/internal/ingest", key)
+	}
+	for _, segment := range strings.Split(normalized, "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("%s must not contain .. path segments", key)
+		}
+	}
+
+	cleaned := path.Clean(normalized)
+	scope, rel, ok := strings.Cut(cleaned, "/")
+	if !ok || rel == "" || rel == "." {
+		return "", fmt.Errorf("%s must start with docs/ or code/ followed by a subdirectory", key)
+	}
+	if scope != "docs" && scope != "code" {
+		return "", fmt.Errorf("%s must start with docs/ or code/", key)
+	}
+	return scope + "/" + rel, nil
 }
 
 func validateSearchDistance(key string, value float64) error {
