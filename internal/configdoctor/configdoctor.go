@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/andrepester/rag-search-mcp/internal/config"
 )
@@ -97,6 +98,9 @@ var defaults = map[string]string{
 	"RAG_MAX_TOP_K":           "50",
 	"RAG_MAX_SEARCH_DISTANCE": "0.50",
 	"RAG_INDEX_LIMIT":         "0",
+	"RAG_EMBED_CONCURRENCY":   strconv.Itoa(config.DefaultEmbedConcurrency),
+	"RAG_EMBED_NUM_THREADS":   strconv.Itoa(config.DefaultEmbedNumThreads),
+	"RAG_REINDEX_TIMEOUT":     config.DefaultReindexTimeout,
 	"RAG_LOG_LEVEL":           "info",
 	"RAG_LOG_FORMAT":          "json",
 }
@@ -191,6 +195,9 @@ func (c *checker) checkRuntimeValues() {
 	}
 	c.checkPositiveInt("RAG_MAX_TOP_K")
 	c.checkNonNegativeInt("RAG_INDEX_LIMIT")
+	c.checkPositiveInt("RAG_EMBED_CONCURRENCY")
+	c.checkNonNegativeInt("RAG_EMBED_NUM_THREADS")
+	c.checkDuration("RAG_REINDEX_TIMEOUT")
 	c.checkSearchDistance()
 	c.checkHTTPHost()
 	c.checkBool("RAG_ENABLE_CODE_INGEST")
@@ -431,6 +438,18 @@ func (c *checker) checkSearchDistance() {
 	}
 	if parsed < config.MinSearchDistance || parsed > config.MaxSearchDistance {
 		c.add(SeverityError, key+"_RANGE", fmt.Sprintf("%s resolves to %.2f, outside the allowed range.", key, parsed), fmt.Sprintf("Set %s to a number between %.2f and %.2f.", key, config.MinSearchDistance, config.MaxSearchDistance))
+	}
+}
+
+func (c *checker) checkDuration(key string) {
+	value := c.effective(key).value
+	parsed, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil {
+		c.add(SeverityError, key+"_DURATION", fmt.Sprintf("%s resolves to %q, which is not a duration.", key, value), fmt.Sprintf("Set %s to a duration such as 60m or 1h.", key))
+		return
+	}
+	if parsed <= 0 {
+		c.add(SeverityError, key+"_POSITIVE", fmt.Sprintf("%s resolves to %s.", key, parsed), fmt.Sprintf("Set %s to a positive duration such as 60m.", key))
 	}
 }
 

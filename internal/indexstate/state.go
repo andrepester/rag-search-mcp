@@ -22,6 +22,8 @@ type Manifest struct {
 	Version          int                       `json:"version"`
 	CollectionName   string                    `json:"collection_name"`
 	ActiveGeneration string                    `json:"active_generation"`
+	ResumeGeneration string                    `json:"resume_generation,omitempty"`
+	ResumeFreshIndex bool                      `json:"resume_fresh_index,omitempty"`
 	UpdatedAt        string                    `json:"updated_at"`
 	Sources          map[string]SourceManifest `json:"sources"`
 }

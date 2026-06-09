@@ -12,8 +12,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/andrepester/rag-search-mcp/internal/config"
+	"github.com/andrepester/rag-search-mcp/internal/indexstate"
 	"github.com/andrepester/rag-search-mcp/internal/ollama"
 	"github.com/andrepester/rag-search-mcp/internal/store"
 )
@@ -139,11 +141,11 @@ func TestReindexBuildsNewGenerationsAndReusesUnchangedSources(t *testing.T) {
 	if got := ollamaBackend.calls(); got <= firstEmbedCalls {
 		t.Fatalf("embedding calls after fresh index = %d, want more than %d", got, firstEmbedCalls)
 	}
-	if got := chromaBackend.countGeneration(first.Generation); got != 0 {
-		t.Fatalf("first generation records survived fresh index, got %d", got)
+	if got := chromaBackend.countGeneration(first.Generation); got == 0 {
+		t.Fatal("first generation records were deleted during fresh index")
 	}
-	if got := chromaBackend.countGeneration(second.Generation); got != 0 {
-		t.Fatalf("second generation records survived fresh index, got %d", got)
+	if got := chromaBackend.countGeneration(second.Generation); got == 0 {
+		t.Fatal("second generation records were deleted during fresh index")
 	}
 	if got := chromaBackend.countGeneration(fresh.Generation); got == 0 {
 		t.Fatalf("fresh generation records were not written, got %d", got)
@@ -170,6 +172,193 @@ func TestReindexBuildsNewGenerationsAndReusesUnchangedSources(t *testing.T) {
 	}
 	if fourth.Files != 0 || fourth.Chunks != 0 || fourth.DeletedFiles != 1 {
 		t.Fatalf("unexpected fourth stats: %+v", fourth)
+	}
+}
+
+func TestReindexResumesIncompleteBuildGeneration(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "a.md"), []byte("first guide text"), 0o644); err != nil {
+		t.Fatalf("write first doc: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "b.md"), []byte("second guide text"), 0o644); err != nil {
+		t.Fatalf("write second doc: %v", err)
+	}
+
+	chromaBackend := newIngestChromaBackend()
+	chromaServer := httptest.NewServer(chromaBackend)
+	defer chromaServer.Close()
+
+	ollamaBackend := &ingestOllamaBackend{failAfter: 1}
+	ollamaServer := httptest.NewServer(ollamaBackend)
+	defer ollamaServer.Close()
+
+	cfg := &config.Config{
+		DocsDir:          docsDir,
+		CodeDir:          filepath.Join(root, "missing-code"),
+		CollectionName:   "rag",
+		IndexStateDir:    filepath.Join(root, "index-state"),
+		EmbedModel:       "test-embed",
+		ChunkSize:        200,
+		ChunkOverlap:     20,
+		EnableCodeIngest: false,
+		EmbedConcurrency: 1,
+	}
+	svc := &Service{
+		Config: cfg,
+		Ollama: ollama.New(ollamaServer.URL),
+		Chroma: store.NewChromaClient(chromaServer.URL, "default_tenant", "default_database"),
+	}
+
+	failed, err := svc.Reindex(ctx)
+	if err == nil {
+		t.Fatal("first Reindex() succeeded, want failure")
+	}
+	if failed.Generation == "" {
+		t.Fatal("failed generation is empty")
+	}
+	if got := chromaBackend.countGeneration(failed.Generation); got == 0 {
+		t.Fatal("failed generation did not keep completed records for resume")
+	}
+	manifest, err := indexstate.New(cfg.IndexStateDir).Load()
+	if err != nil {
+		t.Fatalf("load manifest after failure: %v", err)
+	}
+	if manifest.ActiveGeneration != "" {
+		t.Fatalf("ActiveGeneration after failure = %q, want empty", manifest.ActiveGeneration)
+	}
+	if manifest.ResumeGeneration != failed.Generation {
+		t.Fatalf("ResumeGeneration = %q, want %q", manifest.ResumeGeneration, failed.Generation)
+	}
+
+	callsAfterFailure := ollamaBackend.calls()
+	ollamaBackend.setFailAfter(0)
+	resumed, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("resumed Reindex() failed: %v", err)
+	}
+	if resumed.Generation != failed.Generation {
+		t.Fatalf("resumed generation = %q, want %q", resumed.Generation, failed.Generation)
+	}
+	if resumed.ReusedFiles != 1 || resumed.ChangedFiles != 1 || resumed.EmbeddedChunks == 0 {
+		t.Fatalf("unexpected resumed stats: %+v", resumed)
+	}
+	if got := ollamaBackend.calls() - callsAfterFailure; got != 1 {
+		t.Fatalf("embedding calls during resume = %d, want 1", got)
+	}
+	manifest, err = indexstate.New(cfg.IndexStateDir).Load()
+	if err != nil {
+		t.Fatalf("load manifest after resume: %v", err)
+	}
+	if manifest.ActiveGeneration != failed.Generation {
+		t.Fatalf("ActiveGeneration after resume = %q, want %q", manifest.ActiveGeneration, failed.Generation)
+	}
+	if manifest.ResumeGeneration != "" {
+		t.Fatalf("ResumeGeneration after success = %q, want empty", manifest.ResumeGeneration)
+	}
+}
+
+func TestFreshReindexKeepsActiveGenerationUntilResumeCompletes(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "a.md"), []byte("first guide text"), 0o644); err != nil {
+		t.Fatalf("write first doc: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "b.md"), []byte("second guide text"), 0o644); err != nil {
+		t.Fatalf("write second doc: %v", err)
+	}
+
+	chromaBackend := newIngestChromaBackend()
+	chromaServer := httptest.NewServer(chromaBackend)
+	defer chromaServer.Close()
+
+	ollamaBackend := &ingestOllamaBackend{}
+	ollamaServer := httptest.NewServer(ollamaBackend)
+	defer ollamaServer.Close()
+
+	cfg := &config.Config{
+		DocsDir:          docsDir,
+		CodeDir:          filepath.Join(root, "missing-code"),
+		CollectionName:   "rag",
+		IndexStateDir:    filepath.Join(root, "index-state"),
+		EmbedModel:       "test-embed",
+		ChunkSize:        200,
+		ChunkOverlap:     20,
+		EnableCodeIngest: false,
+		EmbedConcurrency: 1,
+	}
+	svc := &Service{
+		Config: cfg,
+		Ollama: ollama.New(ollamaServer.URL),
+		Chroma: store.NewChromaClient(chromaServer.URL, "default_tenant", "default_database"),
+	}
+
+	initial, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("initial Reindex() failed: %v", err)
+	}
+	cfg.FreshIndex = true
+	ollamaBackend.setFailAfter(ollamaBackend.calls() + 1)
+	failed, err := svc.Reindex(ctx)
+	if err == nil {
+		t.Fatal("fresh Reindex() succeeded, want failure")
+	}
+	if failed.Generation == initial.Generation {
+		t.Fatal("fresh failed generation reused active generation")
+	}
+	manifest, err := indexstate.New(cfg.IndexStateDir).Load()
+	if err != nil {
+		t.Fatalf("load manifest after failed fresh run: %v", err)
+	}
+	if manifest.ActiveGeneration != initial.Generation {
+		t.Fatalf("ActiveGeneration after failed fresh run = %q, want %q", manifest.ActiveGeneration, initial.Generation)
+	}
+	if manifest.ResumeGeneration != failed.Generation {
+		t.Fatalf("ResumeGeneration after failed fresh run = %q, want %q", manifest.ResumeGeneration, failed.Generation)
+	}
+	if !manifest.ResumeFreshIndex {
+		t.Fatal("ResumeFreshIndex after failed fresh run = false, want true")
+	}
+	if got := chromaBackend.countGeneration(initial.Generation); got == 0 {
+		t.Fatal("active generation records were deleted by failed fresh run")
+	}
+
+	callsAfterFailure := ollamaBackend.calls()
+	cfg.FreshIndex = false
+	ollamaBackend.setFailAfter(0)
+	resumed, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("resumed fresh Reindex() failed: %v", err)
+	}
+	if resumed.Generation != failed.Generation {
+		t.Fatalf("resumed fresh generation = %q, want %q", resumed.Generation, failed.Generation)
+	}
+	if resumed.ReusedFiles != 1 || resumed.ChangedFiles != 1 {
+		t.Fatalf("resumed fresh stats = %+v, want one resumed and one embedded source", resumed)
+	}
+	if got := ollamaBackend.calls() - callsAfterFailure; got != 1 {
+		t.Fatalf("embedding calls during fresh resume without FRESH_INDEX = %d, want 1", got)
+	}
+	manifest, err = indexstate.New(cfg.IndexStateDir).Load()
+	if err != nil {
+		t.Fatalf("load manifest after resumed fresh run: %v", err)
+	}
+	if manifest.ActiveGeneration != failed.Generation {
+		t.Fatalf("ActiveGeneration after resumed fresh run = %q, want %q", manifest.ActiveGeneration, failed.Generation)
+	}
+	if manifest.ResumeGeneration != "" {
+		t.Fatalf("ResumeGeneration after resumed fresh run = %q, want empty", manifest.ResumeGeneration)
+	}
+	if manifest.ResumeFreshIndex {
+		t.Fatal("ResumeFreshIndex after resumed fresh run = true, want false")
 	}
 }
 
@@ -397,10 +586,64 @@ func TestReindexSplitsChangedSourceIntoEmbedBatches(t *testing.T) {
 	}
 }
 
+func TestReindexUsesConfiguredEmbedConcurrency(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+	for _, name := range []string{"a.md", "b.md", "c.md", "d.md"} {
+		if err := os.WriteFile(filepath.Join(docsDir, name), []byte(name+" guide text about embedding throughput"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	chromaBackend := newIngestChromaBackend()
+	chromaServer := httptest.NewServer(chromaBackend)
+	defer chromaServer.Close()
+
+	ollamaBackend := &ingestOllamaBackend{delay: 25 * time.Millisecond}
+	ollamaServer := httptest.NewServer(ollamaBackend)
+	defer ollamaServer.Close()
+
+	cfg := &config.Config{
+		DocsDir:          docsDir,
+		CodeDir:          filepath.Join(root, "missing-code"),
+		CollectionName:   "rag",
+		IndexStateDir:    filepath.Join(root, "index-state"),
+		EmbedModel:       "test-embed",
+		ChunkSize:        200,
+		ChunkOverlap:     20,
+		EnableCodeIngest: false,
+		EmbedConcurrency: 2,
+	}
+	svc := &Service{
+		Config: cfg,
+		Ollama: ollama.New(ollamaServer.URL),
+		Chroma: store.NewChromaClient(chromaServer.URL, "default_tenant", "default_database"),
+	}
+
+	stats, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("Reindex() failed: %v", err)
+	}
+	if stats.ChangedFiles != 4 {
+		t.Fatalf("ChangedFiles = %d, want 4", stats.ChangedFiles)
+	}
+	if got := ollamaBackend.maxConcurrentCalls(); got != 2 {
+		t.Fatalf("max concurrent embedding calls = %d, want 2", got)
+	}
+}
+
 type ingestOllamaBackend struct {
 	mu        sync.Mutex
 	callCount int
 	maxBatch  int
+	inFlight  int
+	maxFlight int
+	delay     time.Duration
+	failAfter int
 }
 
 func (b *ingestOllamaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -417,10 +660,28 @@ func (b *ingestOllamaBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	b.mu.Lock()
 	b.callCount++
+	callNumber := b.callCount
+	failAfter := b.failAfter
+	b.inFlight++
 	if len(req.Input) > b.maxBatch {
 		b.maxBatch = len(req.Input)
 	}
+	if b.inFlight > b.maxFlight {
+		b.maxFlight = b.inFlight
+	}
 	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		b.inFlight--
+		b.mu.Unlock()
+	}()
+	if failAfter > 0 && callNumber > failAfter {
+		http.Error(w, "embedding failure", http.StatusInternalServerError)
+		return
+	}
+	if b.delay > 0 {
+		time.Sleep(b.delay)
+	}
 
 	embeddings := make([][]float64, 0, len(req.Input))
 	for _, input := range req.Input {
@@ -435,10 +696,22 @@ func (b *ingestOllamaBackend) calls() int {
 	return b.callCount
 }
 
+func (b *ingestOllamaBackend) setFailAfter(value int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.failAfter = value
+}
+
 func (b *ingestOllamaBackend) maxBatchSize() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.maxBatch
+}
+
+func (b *ingestOllamaBackend) maxConcurrentCalls() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.maxFlight
 }
 
 type ingestChromaBackend struct {

@@ -6,12 +6,18 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	DefaultMaxSearchDistance = 0.50
 	MinSearchDistance        = 0.01
 	MaxSearchDistance        = 2.00
+	DefaultEmbedConcurrency  = 2
+	DefaultEmbedNumThreads   = 0
+	// DefaultReindexTimeout is only the process fallback; RAG_REINDEX_TIMEOUT
+	// from the environment, .env, or Compose takes precedence.
+	DefaultReindexTimeout = "60m"
 )
 
 type Config struct {
@@ -34,6 +40,9 @@ type Config struct {
 	EnableCodeIngest  bool
 	FreshIndex        bool
 	IndexLimit        int
+	EmbedConcurrency  int
+	EmbedNumThreads   int
+	ReindexTimeout    time.Duration
 	LogLevel          string
 	LogFormat         string
 }
@@ -93,6 +102,27 @@ func Load() (Config, error) {
 	if indexLimit < 0 {
 		return Config{}, fmt.Errorf("RAG_INDEX_LIMIT must be >= 0")
 	}
+	embedConcurrency, err := envInt("RAG_EMBED_CONCURRENCY", DefaultEmbedConcurrency)
+	if err != nil {
+		return Config{}, err
+	}
+	if embedConcurrency <= 0 {
+		return Config{}, fmt.Errorf("RAG_EMBED_CONCURRENCY must be > 0")
+	}
+	embedNumThreads, err := envInt("RAG_EMBED_NUM_THREADS", DefaultEmbedNumThreads)
+	if err != nil {
+		return Config{}, err
+	}
+	if embedNumThreads < 0 {
+		return Config{}, fmt.Errorf("RAG_EMBED_NUM_THREADS must be >= 0")
+	}
+	reindexTimeout, err := envDuration("RAG_REINDEX_TIMEOUT", DefaultReindexTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	if reindexTimeout <= 0 {
+		return Config{}, fmt.Errorf("RAG_REINDEX_TIMEOUT must be > 0")
+	}
 
 	defaultScope := strings.ToLower(strings.TrimSpace(env("RAG_SCOPE_DEFAULT", "all")))
 	if defaultScope == "" {
@@ -149,6 +179,9 @@ func Load() (Config, error) {
 		EnableCodeIngest:  enableCodeIngest,
 		FreshIndex:        freshIndex,
 		IndexLimit:        indexLimit,
+		EmbedConcurrency:  embedConcurrency,
+		EmbedNumThreads:   embedNumThreads,
+		ReindexTimeout:    reindexTimeout,
 		LogLevel:          logLevel,
 		LogFormat:         logFormat,
 	}
@@ -183,6 +216,18 @@ func envFloat(key string, fallback float64) (float64, error) {
 	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s must be a number", key)
+	}
+	return value, nil
+}
+
+func envDuration(key string, fallback string) (time.Duration, error) {
+	raw := fallback
+	if value, ok := os.LookupEnv(key); ok && strings.TrimSpace(value) != "" {
+		raw = value
+	}
+	value, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a duration such as 60m or 1h", key)
 	}
 	return value, nil
 }

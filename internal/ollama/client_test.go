@@ -2,6 +2,7 @@ package ollama
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,6 +66,33 @@ func TestEmbedHTTPError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HTTP 502") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEmbedSendsNumThreadOption(t *testing.T) {
+	var payload struct {
+		Model   string         `json:"model"`
+		Input   []string       `json:"input"`
+		Options map[string]any `json:"options"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"embeddings":[[0.1,0.2]]}`))
+	}))
+	defer server.Close()
+
+	client := New(server.URL)
+	_, err := client.Embed(context.Background(), "model", []string{"hello"}, EmbedOptions{NumThreads: 4})
+	if err != nil {
+		t.Fatalf("Embed() failed: %v", err)
+	}
+	if payload.Model != "model" || len(payload.Input) != 1 || payload.Input[0] != "hello" {
+		t.Fatalf("unexpected request payload: %+v", payload)
+	}
+	if payload.Options["num_thread"] != float64(4) {
+		t.Fatalf("num_thread option = %v, want 4", payload.Options["num_thread"])
 	}
 }
 

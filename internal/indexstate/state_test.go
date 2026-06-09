@@ -25,6 +25,8 @@ func TestSaveAndLoadManifest(t *testing.T) {
 	want := Manifest{
 		CollectionName:   "rag",
 		ActiveGeneration: "gen-1",
+		ResumeGeneration: "gen-draft",
+		ResumeFreshIndex: true,
 		Sources: map[string]SourceManifest{
 			"docs/guide.md": {
 				Scope:    "docs",
@@ -42,7 +44,7 @@ func TestSaveAndLoadManifest(t *testing.T) {
 		t.Fatalf("Load() failed: %v", err)
 	}
 
-	if got.CollectionName != want.CollectionName || got.ActiveGeneration != want.ActiveGeneration {
+	if got.CollectionName != want.CollectionName || got.ActiveGeneration != want.ActiveGeneration || got.ResumeGeneration != want.ResumeGeneration || got.ResumeFreshIndex != want.ResumeFreshIndex {
 		t.Fatalf("loaded manifest = %+v, want %+v", got, want)
 	}
 	source := got.Sources["docs/guide.md"]
