@@ -256,7 +256,10 @@ generation still avoids copying unchanged records from the previously active
 generation even when the next command omits `FRESH_INDEX=1`. Changed, deleted,
 or no-longer-limited-in source paths are reconciled before the resumed
 generation is activated, so partial records do not become queryable as stale
-results.
+results. Resume also records the one-off `INDEX_SUBDIR` selection. If an
+incomplete run was started with a different subdirectory selection than the next
+run, indexing fails clearly instead of mixing draft records from different
+source sets.
 
 Indexing also uses a single-writer process lock under the same host-persistent
 state directory as the active pointer. CLI index runs and MCP-triggered
@@ -273,9 +276,26 @@ Use `make index OUTPUT=logs` to print the raw structured `rag-index` runtime
 logs, or `make index OUTPUT=json` to print one machine-readable result object
 for automation. Use `make index INDEX_LIMIT=10` to cap a run at 10 source
 documents for smoke checks; the default `INDEX_LIMIT=0` indexes all discovered
-sources. Indexing sends up to `RAG_EMBED_CONCURRENCY=2` embedding requests in
-parallel by default. Use `RAG_EMBED_CONCURRENCY=4 make index` to test a higher
-parallelism against the configured `OLLAMA_HOST`. Use
+sources. Use `make index INDEX_SUBDIR=docs/demo/technology` to index only the
+subtree under the configured docs root, or
+`make index INDEX_SUBDIR=code/internal/ingest` to index only the subtree under
+the configured code root when code ingest is enabled. The `docs/` or `code/`
+prefix is required, the value must name an existing directory under that scope
+root, and absolute paths, `..` traversal, files, symlinks, unknown scopes, and
+`code/...` with code ingest disabled are rejected. `INDEX_SUBDIR` is a one-off
+Make argument, not a persistent `.env` setting.
+
+A successful `INDEX_SUBDIR` run activates a replacement generation containing
+only the selected subtree. Previously indexed sources outside that subtree are
+not visible to search, chunk lookup, or source listing until a later `make index`
+without `INDEX_SUBDIR` builds a full generation again. The stored `source_path`
+metadata remains scope-root relative, such as
+`docs/demo/technology/example.md`. This differs from the search
+`source_filter` parameter, which only filters query results from the currently
+active index and does not change index contents. Indexing sends up to
+`RAG_EMBED_CONCURRENCY=2` embedding requests in parallel by default. Use
+`RAG_EMBED_CONCURRENCY=4 make index` to test a higher parallelism against the
+configured `OLLAMA_HOST`. Use
 `RAG_EMBED_NUM_THREADS=4 make index` to pass Ollama `options.num_thread=4` for
 embedding requests. Use `RAG_REINDEX_TIMEOUT=90m make index` when a slow shared embedding
 host needs more time than the default timeout. Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode
@@ -329,11 +349,12 @@ Runtime logs are JSON by default and use stable event names:
 Common log fields include `component`, `event`, `tool`, `scope`, `top_k`,
 `matches`, `sources`, `files`, `docs_files`, `code_files`, `chunks`,
 `duration_ms`, `dependency`, `hint`, `generation`, `changed_files`,
-`deleted_files`, `reused_files`, `embedded_chunks`, `reused_chunks`, `job_id`,
-`status`, and `active_job_id`. CLI `reindex_start` logs also include
-the configured `docs_dir` and `code_dir` source roots so operators can identify
-which source configuration a run used. Logs intentionally do not include request
-bodies, query text, chunk text, embeddings, or result snippets.
+`deleted_files`, `reused_files`, `embedded_chunks`, `reused_chunks`,
+`index_subdir`, `job_id`, `status`, and `active_job_id`. CLI `reindex_start`
+logs also include the configured `docs_dir` and `code_dir` source roots so
+operators can identify which source configuration a run used. Logs
+intentionally do not include request bodies, query text, chunk text, embeddings,
+or result snippets.
 
 Metrics and health endpoints:
 

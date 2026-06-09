@@ -39,7 +39,7 @@ func TestLoadScopeDocumentsSkipsSymlinks(t *testing.T) {
 		t.Fatalf("create symlink: %v", err)
 	}
 
-	docs, err := loadScopeDocuments(root, "docs", docsExt)
+	docs, err := loadScopeDocuments(root, "docs", docsExt, "")
 	if err != nil {
 		t.Fatalf("loadScopeDocuments() failed: %v", err)
 	}
@@ -62,6 +62,118 @@ func TestResolvedPathWithinRoot(t *testing.T) {
 	}
 	if resolvedPathWithinRoot(root, outside) {
 		t.Fatal("expected outside path to be rejected")
+	}
+}
+
+func TestLoadDocumentsHonorsIndexSubdirAndKeepsSourcePaths(t *testing.T) {
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	codeDir := filepath.Join(root, "code")
+	for _, dir := range []string{
+		filepath.Join(docsDir, "demo", "technology"),
+		filepath.Join(docsDir, "demo", "finance"),
+		filepath.Join(codeDir, "internal", "ingest"),
+		filepath.Join(codeDir, "internal", "rag"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	writeTextFile(t, filepath.Join(docsDir, "demo", "technology", "a.md"), "technology notes")
+	writeTextFile(t, filepath.Join(docsDir, "demo", "finance", "b.md"), "finance notes")
+	writeTextFile(t, filepath.Join(codeDir, "internal", "ingest", "ingest.go"), "package ingest\n")
+	writeTextFile(t, filepath.Join(codeDir, "internal", "rag", "service.go"), "package rag\n")
+
+	cfg := &config.Config{
+		DocsDir:          docsDir,
+		CodeDir:          codeDir,
+		EnableCodeIngest: true,
+	}
+	svc := &Service{Config: cfg}
+
+	cfg.IndexSubdir = "docs/demo/technology"
+	docs, stats, err := svc.loadDocuments()
+	if err != nil {
+		t.Fatalf("load docs subdir: %v", err)
+	}
+	if stats.Files != 1 || stats.DocsFiles != 1 || stats.CodeFiles != 0 || stats.IndexSubdir != "docs/demo/technology" {
+		t.Fatalf("docs subdir stats = %+v", stats)
+	}
+	if len(docs) != 1 || docs[0].SourcePath != "docs/demo/technology/a.md" {
+		t.Fatalf("docs subdir paths = %+v", docs)
+	}
+
+	cfg.IndexSubdir = "code/internal/ingest"
+	docs, stats, err = svc.loadDocuments()
+	if err != nil {
+		t.Fatalf("load code subdir: %v", err)
+	}
+	if stats.Files != 1 || stats.DocsFiles != 0 || stats.CodeFiles != 1 || stats.IndexSubdir != "code/internal/ingest" {
+		t.Fatalf("code subdir stats = %+v", stats)
+	}
+	if len(docs) != 1 || docs[0].SourcePath != "code/internal/ingest/ingest.go" {
+		t.Fatalf("code subdir paths = %+v", docs)
+	}
+
+	cfg.IndexSubdir = ""
+	docs, stats, err = svc.loadDocuments()
+	if err != nil {
+		t.Fatalf("load full index: %v", err)
+	}
+	if stats.Files != 4 || stats.DocsFiles != 2 || stats.CodeFiles != 2 || stats.IndexSubdir != "" {
+		t.Fatalf("full index stats = %+v", stats)
+	}
+	if len(docs) != 4 {
+		t.Fatalf("full index docs = %d, want 4", len(docs))
+	}
+}
+
+func TestLoadDocumentsRejectsInvalidIndexSubdirTargets(t *testing.T) {
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	codeDir := filepath.Join(root, "code")
+	if err := os.MkdirAll(filepath.Join(docsDir, "demo"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(codeDir, "internal", "ingest"), 0o755); err != nil {
+		t.Fatalf("mkdir code: %v", err)
+	}
+	writeTextFile(t, filepath.Join(docsDir, "demo", "file.md"), "file target")
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(docsDir, "link")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	tests := []struct {
+		name             string
+		indexSubdir      string
+		enableCodeIngest bool
+	}{
+		{name: "missing directory", indexSubdir: "docs/missing", enableCodeIngest: true},
+		{name: "file instead of directory", indexSubdir: "docs/demo/file.md", enableCodeIngest: true},
+		{name: "symlink directory", indexSubdir: "docs/link", enableCodeIngest: true},
+		{name: "code ingest disabled", indexSubdir: "code/internal/ingest", enableCodeIngest: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &Service{Config: &config.Config{
+				DocsDir:          docsDir,
+				CodeDir:          codeDir,
+				EnableCodeIngest: tt.enableCodeIngest,
+				IndexSubdir:      tt.indexSubdir,
+			}}
+			if _, _, err := svc.loadDocuments(); err == nil {
+				t.Fatalf("loadDocuments() succeeded, want error")
+			}
+		})
+	}
+}
+
+func writeTextFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }
 
@@ -359,6 +471,109 @@ func TestFreshReindexKeepsActiveGenerationUntilResumeCompletes(t *testing.T) {
 	}
 	if manifest.ResumeFreshIndex {
 		t.Fatal("ResumeFreshIndex after resumed fresh run = true, want false")
+	}
+}
+
+func TestSubdirReindexFailureKeepsActiveAndRequiresMatchingResume(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	for _, dir := range []string{
+		filepath.Join(docsDir, "selected"),
+		filepath.Join(docsDir, "other"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	writeTextFile(t, filepath.Join(docsDir, "root.md"), "root guide text")
+	writeTextFile(t, filepath.Join(docsDir, "selected", "a.md"), "selected first guide text")
+	writeTextFile(t, filepath.Join(docsDir, "selected", "b.md"), "selected second guide text")
+	writeTextFile(t, filepath.Join(docsDir, "other", "c.md"), "other guide text")
+
+	chromaBackend := newIngestChromaBackend()
+	chromaServer := httptest.NewServer(chromaBackend)
+	defer chromaServer.Close()
+
+	ollamaBackend := &ingestOllamaBackend{}
+	ollamaServer := httptest.NewServer(ollamaBackend)
+	defer ollamaServer.Close()
+
+	cfg := &config.Config{
+		DocsDir:          docsDir,
+		CodeDir:          filepath.Join(root, "missing-code"),
+		CollectionName:   "rag",
+		IndexStateDir:    filepath.Join(root, "index-state"),
+		EmbedModel:       "test-embed",
+		ChunkSize:        200,
+		ChunkOverlap:     20,
+		EnableCodeIngest: false,
+		EmbedConcurrency: 1,
+	}
+	svc := &Service{
+		Config: cfg,
+		Ollama: ollama.New(ollamaServer.URL),
+		Chroma: store.NewChromaClient(chromaServer.URL, "default_tenant", "default_database"),
+	}
+
+	initial, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("initial Reindex() failed: %v", err)
+	}
+	wantFull := []string{"docs/other/c.md", "docs/root.md", "docs/selected/a.md", "docs/selected/b.md"}
+	if paths := chromaBackend.sourcePathsForGeneration(initial.Generation); strings.Join(paths, ",") != strings.Join(wantFull, ",") {
+		t.Fatalf("initial source paths = %+v, want %+v", paths, wantFull)
+	}
+
+	writeTextFile(t, filepath.Join(docsDir, "selected", "a.md"), "selected first changed guide text")
+	writeTextFile(t, filepath.Join(docsDir, "selected", "b.md"), "selected second changed guide text")
+	cfg.IndexSubdir = "docs/selected"
+	ollamaBackend.setFailAfter(ollamaBackend.calls() + 1)
+	failed, err := svc.Reindex(ctx)
+	if err == nil {
+		t.Fatal("subdir Reindex() succeeded, want failure")
+	}
+	if failed.Generation == "" || failed.Generation == initial.Generation {
+		t.Fatalf("failed generation = %q, initial %q", failed.Generation, initial.Generation)
+	}
+	manifest, err := indexstate.New(cfg.IndexStateDir).Load()
+	if err != nil {
+		t.Fatalf("load manifest after failed subdir run: %v", err)
+	}
+	if manifest.ActiveGeneration != initial.Generation {
+		t.Fatalf("ActiveGeneration after failed subdir run = %q, want %q", manifest.ActiveGeneration, initial.Generation)
+	}
+	if manifest.ResumeGeneration != failed.Generation || manifest.ResumeIndexSubdir != "docs/selected" {
+		t.Fatalf("resume state after failed subdir run = %+v, want generation %q with docs/selected", manifest, failed.Generation)
+	}
+	if paths := chromaBackend.sourcePathsForGeneration(initial.Generation); strings.Join(paths, ",") != strings.Join(wantFull, ",") {
+		t.Fatalf("active source paths after failed subdir run = %+v, want %+v", paths, wantFull)
+	}
+
+	cfg.IndexSubdir = "docs/other"
+	ollamaBackend.setFailAfter(0)
+	if _, err := svc.Reindex(ctx); err == nil || !strings.Contains(err.Error(), "RAG_INDEX_SUBDIR") {
+		t.Fatalf("mismatched resume error = %v, want RAG_INDEX_SUBDIR error", err)
+	}
+
+	cfg.IndexSubdir = "docs/selected"
+	resumed, err := svc.Reindex(ctx)
+	if err != nil {
+		t.Fatalf("matching subdir resume failed: %v", err)
+	}
+	if resumed.Generation != failed.Generation || resumed.IndexSubdir != "docs/selected" {
+		t.Fatalf("resumed stats = %+v, want generation %q with docs/selected", resumed, failed.Generation)
+	}
+	wantSelected := []string{"docs/selected/a.md", "docs/selected/b.md"}
+	if paths := chromaBackend.sourcePathsForGeneration(resumed.Generation); strings.Join(paths, ",") != strings.Join(wantSelected, ",") {
+		t.Fatalf("resumed subdir source paths = %+v, want %+v", paths, wantSelected)
+	}
+	manifest, err = indexstate.New(cfg.IndexStateDir).Load()
+	if err != nil {
+		t.Fatalf("load manifest after resumed subdir run: %v", err)
+	}
+	if manifest.ActiveGeneration != failed.Generation || manifest.ActiveIndexSubdir != "docs/selected" || manifest.ResumeGeneration != "" || manifest.ResumeIndexSubdir != "" {
+		t.Fatalf("manifest after resumed subdir run = %+v", manifest)
 	}
 }
 

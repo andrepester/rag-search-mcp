@@ -335,10 +335,12 @@ test_shared_resolver_callers_do_not_drift() {
 	assert_file_contains "clean-install forces fresh index after FULL_RESET" shell/clean-install.sh 'install_fresh_index=1'
 	assert_file_contains "index helper defaults to human output" shell/index.sh 'output=${OUTPUT:-human}'
 	assert_file_contains "index helper resolves RAG_INDEX_LIMIT through shared resolver" shell/index.sh 'index_limit_raw=$(resolve_host_override RAG_INDEX_LIMIT 0)'
+	assert_file_contains "index helper reads one-off index subdir from make or env" shell/index.sh 'index_subdir=${INDEX_SUBDIR-}'
 	assert_file_contains "index helper resolves RAG_EMBED_CONCURRENCY through shared resolver" shell/index.sh "embed_concurrency=\$(resolve_host_override RAG_EMBED_CONCURRENCY '')"
 	assert_file_contains "index helper resolves RAG_EMBED_NUM_THREADS through shared resolver" shell/index.sh "embed_num_threads=\$(resolve_host_override RAG_EMBED_NUM_THREADS '')"
 	assert_file_contains "index helper resolves RAG_REINDEX_TIMEOUT through shared resolver" shell/index.sh "reindex_timeout=\$(resolve_host_override RAG_REINDEX_TIMEOUT '')"
 	assert_file_contains "index helper passes fresh mode into container wrapper" shell/index.sh 'set -- exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_LIMIT="$index_limit"'
+	assert_file_contains "index helper passes explicit index subdir" shell/index.sh 'set -- "$@" -e RAG_INDEX_SUBDIR="$index_subdir"'
 	assert_file_contains "index helper passes explicit embed concurrency" shell/index.sh 'set -- "$@" -e RAG_EMBED_CONCURRENCY="$embed_concurrency"'
 	assert_file_contains "index helper passes explicit embed num threads" shell/index.sh 'set -- "$@" -e RAG_EMBED_NUM_THREADS="$embed_num_threads"'
 	assert_file_contains "index helper passes explicit reindex timeout" shell/index.sh 'set -- "$@" -e RAG_REINDEX_TIMEOUT="$reindex_timeout"'
@@ -347,6 +349,7 @@ test_shared_resolver_callers_do_not_drift() {
 	assert_file_contains "index helper passes output argument to container wrapper" shell/index.sh "' sh \"\$output\""
 	assert_file_contains "index helper detects stale rag-index binary" shell/index.sh 'running rag-mcp container does not support OUTPUT modes'
 	assert_file_not_contains "make must not force index limit default before shell fallback" Makefile 'INDEX_LIMIT ?= 0'
+	assert_file_not_contains "index helper must not persist index subdir through .env" shell/index.sh 'resolve_host_override RAG_INDEX_SUBDIR'
 	assert_file_not_contains "install-bootstrap must not use legacy host override directly" shell/install-bootstrap.sh 'resolve_host_override'
 	assert_file_not_contains "clean-install must not use legacy host override directly" shell/clean-install.sh 'resolve_host_override'
 	assert_file_not_contains "config-doctor must not use legacy host override directly" shell/config-doctor.sh 'resolve_host_override'

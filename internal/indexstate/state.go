@@ -19,13 +19,15 @@ type Store struct {
 }
 
 type Manifest struct {
-	Version          int                       `json:"version"`
-	CollectionName   string                    `json:"collection_name"`
-	ActiveGeneration string                    `json:"active_generation"`
-	ResumeGeneration string                    `json:"resume_generation,omitempty"`
-	ResumeFreshIndex bool                      `json:"resume_fresh_index,omitempty"`
-	UpdatedAt        string                    `json:"updated_at"`
-	Sources          map[string]SourceManifest `json:"sources"`
+	Version           int                       `json:"version"`
+	CollectionName    string                    `json:"collection_name"`
+	ActiveGeneration  string                    `json:"active_generation"`
+	ActiveIndexSubdir string                    `json:"active_index_subdir,omitempty"`
+	ResumeGeneration  string                    `json:"resume_generation,omitempty"`
+	ResumeFreshIndex  bool                      `json:"resume_fresh_index,omitempty"`
+	ResumeIndexSubdir string                    `json:"resume_index_subdir,omitempty"`
+	UpdatedAt         string                    `json:"updated_at"`
+	Sources           map[string]SourceManifest `json:"sources"`
 }
 
 type SourceManifest struct {

@@ -5,6 +5,7 @@
 FULL_RESET ?= 0
 FRESH_INDEX ?= 0
 INDEX_LIMIT ?=
+INDEX_SUBDIR ?=
 OUTPUT ?= human
 COMPOSE_PROJECT_DIR ?= .
 COMPOSE_FILE ?= docker/docker-compose.yml
@@ -17,7 +18,7 @@ help:
 	@printf '  %-25s %s\n' 'make up' 'Start runtime stack in detached mode'
 	@printf '  %-25s %s\n' 'make down' 'Stop runtime stack (without removing containers)'
 	@printf '  %-25s %s\n' 'make test' 'Run Go tests via Dockerfile go-runner stage'
-	@printf '  %-25s %s\n' 'make index' 'Build index; use FRESH_INDEX=1, INDEX_LIMIT=N, or OUTPUT=logs|json'
+	@printf '  %-25s %s\n' 'make index' 'Build index; use INDEX_SUBDIR=docs/dir, FRESH_INDEX=1, INDEX_LIMIT=N, or OUTPUT=logs|json'
 	@printf '  %-25s %s\n' 'make logs' 'Tail runtime stack logs'
 	@printf '  %-25s %s\n' 'make doctor' 'Validate config and run runtime diagnostics'
 
@@ -37,7 +38,7 @@ clean-install:
 	@FULL_RESET='$(FULL_RESET)' INDEX_LIMIT='$(INDEX_LIMIT)' COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' sh ./shell/clean-install.sh
 
 index:
-	@FRESH_INDEX='$(FRESH_INDEX)' INDEX_LIMIT='$(INDEX_LIMIT)' OUTPUT='$(OUTPUT)' COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' sh ./shell/index.sh
+	@FRESH_INDEX='$(FRESH_INDEX)' INDEX_LIMIT='$(INDEX_LIMIT)' INDEX_SUBDIR='$(INDEX_SUBDIR)' OUTPUT='$(OUTPUT)' COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' sh ./shell/index.sh
 
 logs:
 	@COMPOSE_PROJECT_DIR='$(COMPOSE_PROJECT_DIR)' COMPOSE_FILE='$(COMPOSE_FILE)' sh ./shell/logs.sh

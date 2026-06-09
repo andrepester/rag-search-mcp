@@ -123,6 +123,7 @@ func TestRunCommandHumanOutput(t *testing.T) {
 				EmbeddedChunks: 0,
 				ReusedChunks:   176,
 				Generation:     "gen-human",
+				IndexSubdir:    "docs/demo/technology",
 			}, nil
 		}}
 	}
@@ -142,6 +143,7 @@ func TestRunCommandHumanOutput(t *testing.T) {
 		"chunks: 176 total, 0 embedded, 176 reused",
 		"changes: 0 changed, 0 deleted, 106 reused files",
 		"generation: gen-human",
+		"index_subdir: docs/demo/technology",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("human output missing %q:\n%s", want, output)
@@ -170,11 +172,12 @@ func TestRunCommandJSONOutput(t *testing.T) {
 	newIndexer = func(*config.Config, *ollama.Client, *store.ChromaClient) indexer {
 		return fakeIndexer{reindex: func(context.Context) (ingest.Stats, error) {
 			return ingest.Stats{
-				Files:      2,
-				DocsFiles:  1,
-				CodeFiles:  1,
-				Chunks:     4,
-				Generation: "gen-json",
+				Files:       2,
+				DocsFiles:   1,
+				CodeFiles:   1,
+				Chunks:      4,
+				Generation:  "gen-json",
+				IndexSubdir: "code/internal/ingest",
 			}, nil
 		}}
 	}
@@ -201,7 +204,7 @@ func TestRunCommandJSONOutput(t *testing.T) {
 	if result.JobID == "" {
 		t.Fatalf("missing job ID in %+v", result)
 	}
-	if result.Stats.Chunks != 4 || result.Stats.Generation != "gen-json" {
+	if result.Stats.Chunks != 4 || result.Stats.Generation != "gen-json" || result.Stats.IndexSubdir != "code/internal/ingest" {
 		t.Fatalf("stats = %+v", result.Stats)
 	}
 	if strings.Contains(logs.String(), "reindex_complete") {

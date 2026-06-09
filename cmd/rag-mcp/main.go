@@ -252,6 +252,7 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 				slog.String("event", "reindex_start"),
 				slog.String("trigger", "mcp_tool"),
 				slog.String("job_id", job.ID),
+				slog.String("index_subdir", job.IndexSubdir),
 			)
 		})
 		if err != nil {
@@ -289,6 +290,7 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 			slog.Int("embedded_chunks", stats.EmbeddedChunks),
 			slog.Int("reused_chunks", stats.ReusedChunks),
 			slog.String("generation", stats.Generation),
+			slog.String("index_subdir", stats.IndexSubdir),
 			slog.String("job_id", jobID),
 			slog.Int64("duration_ms", durationMillis(start)),
 		)
@@ -304,6 +306,7 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 			"embedded_chunks": stats.EmbeddedChunks,
 			"reused_chunks":   stats.ReusedChunks,
 			"generation":      stats.Generation,
+			"index_subdir":    stats.IndexSubdir,
 			"job_id":          jobID,
 		}, nil
 	})

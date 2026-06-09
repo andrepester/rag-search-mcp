@@ -17,6 +17,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("RAG_ENABLE_CODE_INGEST", "false")
 	t.Setenv("FRESH_INDEX", "true")
 	t.Setenv("RAG_INDEX_LIMIT", "10")
+	t.Setenv("RAG_INDEX_SUBDIR", "docs/demo//technology")
 	t.Setenv("RAG_EMBED_CONCURRENCY", "3")
 	t.Setenv("RAG_EMBED_NUM_THREADS", "4")
 	t.Setenv("RAG_REINDEX_TIMEOUT", "45m")
@@ -45,6 +46,9 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	if cfg.IndexLimit != 10 {
 		t.Fatalf("IndexLimit = %d, want 10", cfg.IndexLimit)
 	}
+	if cfg.IndexSubdir != "docs/demo/technology" {
+		t.Fatalf("IndexSubdir = %q, want docs/demo/technology", cfg.IndexSubdir)
+	}
 	if cfg.EmbedConcurrency != 3 {
 		t.Fatalf("EmbedConcurrency = %d, want 3", cfg.EmbedConcurrency)
 	}
@@ -72,7 +76,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 }
 
 func TestLoadValidation(t *testing.T) {
-	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_MAX_SEARCH_DISTANCE", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_INDEX_LIMIT", "RAG_EMBED_CONCURRENCY", "RAG_EMBED_NUM_THREADS", "RAG_REINDEX_TIMEOUT", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT", "OLLAMA_HOST"} {
+	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_MAX_SEARCH_DISTANCE", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_INDEX_LIMIT", "RAG_INDEX_SUBDIR", "RAG_EMBED_CONCURRENCY", "RAG_EMBED_NUM_THREADS", "RAG_REINDEX_TIMEOUT", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT", "OLLAMA_HOST"} {
 		_ = os.Unsetenv(key)
 	}
 	t.Setenv("OLLAMA_HOST", "http://ollama.example.internal:11434")
@@ -190,5 +194,47 @@ func TestLoadValidation(t *testing.T) {
 	t.Setenv("OLLAMA_HOST", " ")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected validation error for missing ollama host")
+	}
+}
+
+func TestLoadIndexSubdirValidation(t *testing.T) {
+	tests := []struct {
+		name             string
+		raw              string
+		enableCodeIngest string
+		want             string
+		wantErr          bool
+	}{
+		{name: "docs subdir", raw: "docs/demo/technology", enableCodeIngest: "true", want: "docs/demo/technology"},
+		{name: "code subdir", raw: "code/internal\\ingest", enableCodeIngest: "true", want: "code/internal/ingest"},
+		{name: "empty", raw: "  ", enableCodeIngest: "true", wantErr: true},
+		{name: "absolute", raw: "/data/docs", enableCodeIngest: "true", wantErr: true},
+		{name: "traversal", raw: "docs/../secrets", enableCodeIngest: "true", wantErr: true},
+		{name: "missing scope prefix", raw: "demo/technology", enableCodeIngest: "true", wantErr: true},
+		{name: "scope root only", raw: "docs/", enableCodeIngest: "true", wantErr: true},
+		{name: "unknown scope", raw: "assets/demo", enableCodeIngest: "true", wantErr: true},
+		{name: "code disabled", raw: "code/internal/ingest", enableCodeIngest: "false", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("OLLAMA_HOST", "http://ollama.example.internal:11434")
+			t.Setenv("RAG_ENABLE_CODE_INGEST", tt.enableCodeIngest)
+			t.Setenv("RAG_INDEX_SUBDIR", tt.raw)
+
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Load() succeeded, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() failed: %v", err)
+			}
+			if cfg.IndexSubdir != tt.want {
+				t.Fatalf("IndexSubdir = %q, want %q", cfg.IndexSubdir, tt.want)
+			}
+		})
 	}
 }

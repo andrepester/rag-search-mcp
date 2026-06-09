@@ -133,7 +133,7 @@ func (s *Service) Reindex(ctx context.Context) (ingest.Stats, error) {
 }
 
 func (s *Service) RunReindex(ctx context.Context, trigger string, onStart func(reindexjob.Job)) (ingest.Stats, error) {
-	run, err := reindexjob.New(s.Config.IndexStateDir).Start(ctx, trigger)
+	run, err := reindexjob.New(s.Config.IndexStateDir).StartWithOptions(ctx, trigger, reindexjob.StartOptions{IndexSubdir: s.Config.IndexSubdir})
 	if err != nil {
 		return ingest.Stats{}, err
 	}

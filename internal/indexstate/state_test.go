@@ -23,10 +23,12 @@ func TestLoadMissingStateReturnsEmptyManifest(t *testing.T) {
 func TestSaveAndLoadManifest(t *testing.T) {
 	store := New(t.TempDir())
 	want := Manifest{
-		CollectionName:   "rag",
-		ActiveGeneration: "gen-1",
-		ResumeGeneration: "gen-draft",
-		ResumeFreshIndex: true,
+		CollectionName:    "rag",
+		ActiveGeneration:  "gen-1",
+		ActiveIndexSubdir: "docs/demo/technology",
+		ResumeGeneration:  "gen-draft",
+		ResumeFreshIndex:  true,
+		ResumeIndexSubdir: "docs/demo/technology",
 		Sources: map[string]SourceManifest{
 			"docs/guide.md": {
 				Scope:    "docs",
@@ -44,7 +46,7 @@ func TestSaveAndLoadManifest(t *testing.T) {
 		t.Fatalf("Load() failed: %v", err)
 	}
 
-	if got.CollectionName != want.CollectionName || got.ActiveGeneration != want.ActiveGeneration || got.ResumeGeneration != want.ResumeGeneration || got.ResumeFreshIndex != want.ResumeFreshIndex {
+	if got.CollectionName != want.CollectionName || got.ActiveGeneration != want.ActiveGeneration || got.ActiveIndexSubdir != want.ActiveIndexSubdir || got.ResumeGeneration != want.ResumeGeneration || got.ResumeFreshIndex != want.ResumeFreshIndex || got.ResumeIndexSubdir != want.ResumeIndexSubdir {
 		t.Fatalf("loaded manifest = %+v, want %+v", got, want)
 	}
 	source := got.Sources["docs/guide.md"]

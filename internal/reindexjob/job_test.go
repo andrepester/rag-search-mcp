@@ -83,9 +83,12 @@ func TestRunProgressIsRecordedAndFinished(t *testing.T) {
 	ctx := context.Background()
 	coord := New(t.TempDir())
 
-	run, err := coord.Start(ctx, TriggerCLI)
+	run, err := coord.StartWithOptions(ctx, TriggerCLI, StartOptions{IndexSubdir: "docs/demo/technology"})
 	if err != nil {
 		t.Fatalf("Start() failed: %v", err)
+	}
+	if run.Job.IndexSubdir != "docs/demo/technology" {
+		t.Fatalf("Job.IndexSubdir = %q, want docs/demo/technology", run.Job.IndexSubdir)
 	}
 	if err := run.UpdateProgress(ctx, Progress{TotalDocuments: 3, ProcessedDocuments: 1}); err != nil {
 		t.Fatalf("UpdateProgress() failed: %v", err)
@@ -97,6 +100,9 @@ func TestRunProgressIsRecordedAndFinished(t *testing.T) {
 	}
 	if status.Progress == nil || status.Progress.TotalDocuments != 3 || status.Progress.ProcessedDocuments != 1 {
 		t.Fatalf("progress = %+v, want 1/3", status.Progress)
+	}
+	if status.ActiveJob == nil || status.ActiveJob.IndexSubdir != "docs/demo/technology" {
+		t.Fatalf("active job = %+v, want index subdir", status.ActiveJob)
 	}
 
 	if err := run.UpdateProgress(ctx, Progress{TotalDocuments: 3, ProcessedDocuments: 9}); err != nil {
@@ -122,6 +128,9 @@ func TestRunProgressIsRecordedAndFinished(t *testing.T) {
 	}
 	if status.LastRun == nil || status.LastRun.TotalDocuments != 3 || status.LastRun.ProcessedDocuments != 3 {
 		t.Fatalf("last run progress = %+v, want 3/3", status.LastRun)
+	}
+	if status.LastRun.IndexSubdir != "docs/demo/technology" {
+		t.Fatalf("last run index subdir = %q, want docs/demo/technology", status.LastRun.IndexSubdir)
 	}
 }
 

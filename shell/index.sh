@@ -19,6 +19,10 @@ index_limit=$(parse_non_negative_int "$index_limit_raw" 0) || {
 	printf '%s\n' 'INDEX_LIMIT/RAG_INDEX_LIMIT must be 0 or a positive integer' >&2
 	exit 2
 }
+index_subdir=${INDEX_SUBDIR-}
+if ! is_non_empty_non_ws "$index_subdir" && is_non_empty_non_ws "${RAG_INDEX_SUBDIR-}"; then
+	index_subdir=${RAG_INDEX_SUBDIR-}
+fi
 if is_non_empty_non_ws "${RAG_REINDEX_TIMEOUT-}"; then
 	reindex_timeout=${RAG_REINDEX_TIMEOUT-}
 else
@@ -228,8 +232,14 @@ fi
 if [ "$index_limit" -gt 0 ]; then
 	printf 'index: INDEX_LIMIT=%s requested; indexing at most %s input documents.\n' "$index_limit" "$index_limit" >&2
 fi
+if is_non_empty_non_ws "$index_subdir"; then
+	printf 'index: INDEX_SUBDIR=%s requested; a successful run will activate only this subtree.\n' "$index_subdir" >&2
+fi
 
 set -- exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_LIMIT="$index_limit"
+if is_non_empty_non_ws "$index_subdir"; then
+	set -- "$@" -e RAG_INDEX_SUBDIR="$index_subdir"
+fi
 if is_non_empty_non_ws "$embed_concurrency"; then
 	set -- "$@" -e RAG_EMBED_CONCURRENCY="$embed_concurrency"
 fi
