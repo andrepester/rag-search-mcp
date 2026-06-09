@@ -19,6 +19,21 @@ index_limit=$(parse_non_negative_int "$index_limit_raw" 0) || {
 	printf '%s\n' 'INDEX_LIMIT/RAG_INDEX_LIMIT must be 0 or a positive integer' >&2
 	exit 2
 }
+if is_non_empty_non_ws "${RAG_REINDEX_TIMEOUT-}"; then
+	reindex_timeout=${RAG_REINDEX_TIMEOUT-}
+else
+	reindex_timeout=$(resolve_host_override RAG_REINDEX_TIMEOUT '')
+fi
+if is_non_empty_non_ws "${RAG_EMBED_CONCURRENCY-}"; then
+	embed_concurrency=${RAG_EMBED_CONCURRENCY-}
+else
+	embed_concurrency=$(resolve_host_override RAG_EMBED_CONCURRENCY '')
+fi
+if is_non_empty_non_ws "${RAG_EMBED_NUM_THREADS-}"; then
+	embed_num_threads=${RAG_EMBED_NUM_THREADS-}
+else
+	embed_num_threads=$(resolve_host_override RAG_EMBED_NUM_THREADS '')
+fi
 output=${OUTPUT:-human}
 case "$output" in
 	human|json|logs)
@@ -208,13 +223,23 @@ trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
 if [ "$fresh_index" -eq 1 ]; then
-	printf '%s\n' 'index: FRESH_INDEX=1 requested; resetting the configured Chroma collection before rebuild.' >&2
+	printf '%s\n' 'index: FRESH_INDEX=1 requested; building a fresh resumable generation without copying active records.' >&2
 fi
 if [ "$index_limit" -gt 0 ]; then
 	printf 'index: INDEX_LIMIT=%s requested; indexing at most %s input documents.\n' "$index_limit" "$index_limit" >&2
 fi
 
-COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_LIMIT="$index_limit" -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c '
+set -- exec -T -e FRESH_INDEX="$fresh_index" -e RAG_INDEX_LIMIT="$index_limit"
+if is_non_empty_non_ws "$embed_concurrency"; then
+	set -- "$@" -e RAG_EMBED_CONCURRENCY="$embed_concurrency"
+fi
+if is_non_empty_non_ws "$embed_num_threads"; then
+	set -- "$@" -e RAG_EMBED_NUM_THREADS="$embed_num_threads"
+fi
+if is_non_empty_non_ws "$reindex_timeout"; then
+	set -- "$@" -e RAG_REINDEX_TIMEOUT="$reindex_timeout"
+fi
+set -- "$@" -e RAG_INDEX_RUN_TOKEN="$index_run_token" rag-mcp /bin/sh -c '
 	pid_file="/data/index-state/rag-index-${RAG_INDEX_RUN_TOKEN}.pid"
 	mkdir -p /data/index-state
 	cleanup() {
@@ -232,7 +257,9 @@ COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_projec
 	status=$?
 	rm -f "$pid_file"
 	exit "$status"
-' sh "$output" >"$log_file" 2>&1 &
+' sh "$output"
+
+COMPOSE_FILE="$compose_file" docker compose --project-directory "$compose_project_dir" "$@" >"$log_file" 2>&1 &
 index_pid=$!
 
 start_progress &

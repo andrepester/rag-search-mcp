@@ -248,6 +248,15 @@ If reindexing fails before that switch, the previous query state remains active.
 Deleted sources are no longer returned after a successful switch because queries
 filter by the new active generation. Old generations are cleanup state; query
 correctness depends on the active pointer, not on immediate cleanup.
+An incomplete run records a resumable build generation in the same state file.
+The next `make index` run continues that generation and skips source documents
+whose current fingerprint and chunk records are already complete. Resume also
+remembers whether the interrupted run was a fresh index, so a resumed fresh
+generation still avoids copying unchanged records from the previously active
+generation even when the next command omits `FRESH_INDEX=1`. Changed, deleted,
+or no-longer-limited-in source paths are reconciled before the resumed
+generation is activated, so partial records do not become queryable as stale
+results.
 
 Indexing also uses a single-writer process lock under the same host-persistent
 state directory as the active pointer. CLI index runs and MCP-triggered
@@ -264,12 +273,16 @@ Use `make index OUTPUT=logs` to print the raw structured `rag-index` runtime
 logs, or `make index OUTPUT=json` to print one machine-readable result object
 for automation. Use `make index INDEX_LIMIT=10` to cap a run at 10 source
 documents for smoke checks; the default `INDEX_LIMIT=0` indexes all discovered
-sources. Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode
-resets the configured Chroma collection before rebuilding, so unchanged sources
-are embedded again and old index records are not reused. It does not remove
-mounted source data from `HOST_DOCS_DIR` or `HOST_CODE_DIR`.
-Because it resets the active collection before rebuilding, searches may return
-no current index results until the fresh run completes.
+sources. Indexing sends up to `RAG_EMBED_CONCURRENCY=2` embedding requests in
+parallel by default. Use `RAG_EMBED_CONCURRENCY=4 make index` to test a higher
+parallelism against the configured `OLLAMA_HOST`. Use
+`RAG_EMBED_NUM_THREADS=4 make index` to pass Ollama `options.num_thread=4` for
+embedding requests. Use `RAG_REINDEX_TIMEOUT=90m make index` when a slow shared embedding
+host needs more time than the default timeout. Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode
+builds a new generation without copying unchanged records from the active
+generation, so source documents are embedded again. It does not remove mounted
+source data from `HOST_DOCS_DIR` or `HOST_CODE_DIR`, and it does not delete the
+currently active query generation before the new generation is complete.
 After changing `rag-index` code, run `make up` once before `make index` so the
 running `rag-mcp` container contains the current binary.
 
@@ -384,6 +397,9 @@ boundary.
 | `RAG_MAX_TOP_K` | `50` | Upper bound for explicit MCP/API `top_k`; the bundled UI omits `top_k` and shows all relevant matches |
 | `RAG_MAX_SEARCH_DISTANCE` | `0.50` | Default semantic distance threshold for search relevance; lower is stricter, higher shows more matches |
 | `RAG_INDEX_LIMIT` | `0` | Maximum number of source documents to index; `0` means all discovered docs/code sources |
+| `RAG_EMBED_CONCURRENCY` | `2` | Maximum concurrent index-time embedding requests sent to the configured `OLLAMA_HOST` |
+| `RAG_EMBED_NUM_THREADS` | `0` | Optional Ollama `options.num_thread` value for embedding requests; `0` omits the option |
+| `RAG_REINDEX_TIMEOUT` | `60m` | Maximum duration for a CLI `make index`/`rag-index` run before it is canceled |
 | `RAG_LOG_LEVEL` | `info` | Runtime log level: `debug`, `info`, `warn`, or `error` |
 | `RAG_LOG_FORMAT` | `json` | Runtime log format for `rag-mcp` and `rag-index`: `json` or `text` |
 | `OLLAMA_HOST` | required | Shared Ollama HTTP endpoint used by `rag-mcp`; this stack does not start or manage Ollama |
@@ -403,6 +419,13 @@ OLLAMA_HOST=http://ollama.example.internal:11434
 
 Model installation is managed outside this Compose stack. Ensure the configured
 `EMBED_MODEL` exists on the shared Ollama host.
+Search queries and index runs both use this same `EMBED_MODEL`; after changing
+it, rebuild the vector index with `make index FRESH_INDEX=1`.
+If the shared Ollama host is tuned with `OLLAMA_NUM_PARALLEL`, keep
+`RAG_EMBED_CONCURRENCY` at or below that value for indexing smoke tests; `2` is
+the conservative default for small two-core hosts. Use `RAG_EMBED_NUM_THREADS`
+only as an explicit Ollama runner tuning experiment; leave it at `0` when the
+host should choose its own thread count.
 During `make install`, the configured `OLLAMA_HOST` is written or merged into
 `.env` before the runtime checks run.
 

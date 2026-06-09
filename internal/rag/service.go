@@ -208,7 +208,7 @@ func (s *Service) SearchWithOptions(ctx context.Context, options SearchOptions) 
 		topK = s.Config.MaxTopK
 	}
 
-	embeddings, err := s.Ollama.Embed(ctx, s.Config.EmbedModel, []string{query})
+	embeddings, err := s.Ollama.Embed(ctx, s.Config.EmbedModel, []string{query}, ollama.EmbedOptions{NumThreads: s.Config.EmbedNumThreads})
 	if err != nil {
 		return SearchResponse{}, err
 	}

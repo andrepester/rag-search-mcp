@@ -59,7 +59,10 @@ for key in \
 	RAG_CHUNK_OVERLAP \
 	RAG_MAX_TOP_K \
 	RAG_MAX_SEARCH_DISTANCE \
-	RAG_INDEX_LIMIT
+	RAG_INDEX_LIMIT \
+	RAG_EMBED_CONCURRENCY \
+	RAG_EMBED_NUM_THREADS \
+	RAG_REINDEX_TIMEOUT
 do
 	eval "is_set=\${$key+x}"
 	if [ -n "$is_set" ]; then

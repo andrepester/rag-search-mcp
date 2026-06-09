@@ -21,7 +21,6 @@ import (
 )
 
 const (
-	reindexTimeout        = 5 * time.Minute
 	reindexInitMinBackoff = 250 * time.Millisecond
 	reindexInitMaxBackoff = 3 * time.Second
 	exitReindexBusy       = 2
@@ -194,7 +193,7 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 	chromaClient := store.NewChromaClient(cfg.ChromaURL, cfg.ChromaTenant, cfg.ChromaDatabase)
 	ingestSvc := newIndexer(&cfg, ollamaClient, chromaClient)
 
-	retryCtx, cancel := context.WithTimeout(ctx, reindexTimeout)
+	retryCtx, cancel := context.WithTimeout(ctx, cfg.ReindexTimeout)
 	defer cancel()
 
 	run, err := reindexjob.New(cfg.IndexStateDir).Start(ctx, reindexjob.TriggerCLI)
@@ -213,6 +212,8 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 		slog.Bool("code_ingest", cfg.EnableCodeIngest),
 		slog.Bool("fresh_index", cfg.FreshIndex),
 		slog.Int("index_limit", cfg.IndexLimit),
+		slog.Int("embed_concurrency", cfg.EmbedConcurrency),
+		slog.Int("embed_num_threads", cfg.EmbedNumThreads),
 		slog.String("collection", cfg.CollectionName),
 	)
 
@@ -265,9 +266,11 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 func reindexWithRetry(ctx context.Context, idx indexer) (ingest.Stats, error) {
 	backoff := reindexInitMinBackoff
 	var lastErr error
+	var lastStats ingest.Stats
 
 	for {
 		stats, err := idx.Reindex(ctx)
+		lastStats = stats
 		if err == nil {
 			return stats, nil
 		}
@@ -276,9 +279,9 @@ func reindexWithRetry(ctx context.Context, idx indexer) (ingest.Stats, error) {
 		select {
 		case <-ctx.Done():
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return ingest.Stats{}, fmt.Errorf("reindex timeout after retries: %w", lastErr)
+				return lastStats, fmt.Errorf("reindex timeout after retries: %w", lastErr)
 			}
-			return ingest.Stats{}, fmt.Errorf("reindex canceled: %w", ctx.Err())
+			return lastStats, fmt.Errorf("reindex canceled: %w", ctx.Err())
 		case <-time.After(backoff):
 		}
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ledongthuc/pdf"
@@ -60,6 +61,12 @@ type document struct {
 	Scope      string
 	SourcePath string
 	Text       string
+}
+
+type documentIndexResult struct {
+	SourcePath string
+	Source     indexstate.SourceManifest
+	Stats      Stats
 }
 
 var docsExt = map[string]struct{}{
@@ -115,77 +122,57 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 		return stats, err
 	}
 
-	if s.Config.FreshIndex {
-		if err := s.Chroma.DeleteCollection(ctx, collectionID); err != nil && !store.IsNotFound(err) {
-			return stats, fmt.Errorf("reset collection for fresh index: %w", err)
-		}
-		collectionID, err = s.Chroma.EnsureCollection(ctx, s.Config.CollectionName)
-		if err != nil {
-			return stats, fmt.Errorf("ensure collection after fresh reset: %w", err)
-		}
-		activeManifest = indexstate.Manifest{Sources: map[string]indexstate.SourceManifest{}}
-	} else if activeManifest.CollectionName != "" && activeManifest.CollectionName != s.Config.CollectionName {
+	if activeManifest.CollectionName != "" && activeManifest.CollectionName != s.Config.CollectionName {
 		activeManifest = indexstate.Manifest{Sources: map[string]indexstate.SourceManifest{}}
 	}
 
 	activeGeneration := activeManifest.ActiveGeneration
-	buildGeneration := newGeneration()
-	stats.Generation = buildGeneration
-
-	switched := false
-	defer func() {
-		if switched {
-			return
+	buildGeneration := strings.TrimSpace(activeManifest.ResumeGeneration)
+	effectiveFreshIndex := s.Config.FreshIndex
+	if buildGeneration != "" {
+		effectiveFreshIndex = activeManifest.ResumeFreshIndex
+		if s.Config.FreshIndex && !activeManifest.ResumeFreshIndex {
+			buildGeneration = ""
+			effectiveFreshIndex = true
 		}
-		_ = s.Chroma.DeleteWhere(ctx, collectionID, map[string]any{"index_generation": buildGeneration})
-	}()
-
-	nextSources := map[string]indexstate.SourceManifest{}
-	processedDocuments := 0
-	for _, doc := range documents {
-		sourceHash := sourceFingerprint(doc, s.Config)
-		if activeGeneration != "" {
-			if activeSource, ok := activeManifest.Sources[doc.SourcePath]; ok && activeSource.Hash == sourceHash {
-				chunkIDs, copied, err := s.copyUnchangedSource(ctx, collectionID, activeGeneration, buildGeneration, doc, sourceHash)
-				if err != nil {
-					return stats, err
-				}
-				if copied {
-					stats.ReusedFiles++
-					stats.ReusedChunks += len(chunkIDs)
-					stats.Chunks += len(chunkIDs)
-					nextSources[doc.SourcePath] = indexstate.SourceManifest{
-						Scope:    doc.Scope,
-						Hash:     sourceHash,
-						ChunkIDs: chunkIDs,
-					}
-					processedDocuments++
-					reportDocumentProgress(ctx, stats.Files, processedDocuments)
-					continue
-				}
-			}
+	}
+	if buildGeneration == "" {
+		buildGeneration = newGeneration()
+		activeManifest.CollectionName = s.Config.CollectionName
+		activeManifest.ResumeGeneration = buildGeneration
+		activeManifest.ResumeFreshIndex = s.Config.FreshIndex
+		if activeManifest.Sources == nil {
+			activeManifest.Sources = map[string]indexstate.SourceManifest{}
 		}
-
-		chunkIDs, err := s.indexChangedSource(ctx, collectionID, buildGeneration, doc, sourceHash)
-		if err != nil {
+		if err := stateStore.Save(activeManifest); err != nil {
 			return stats, err
 		}
-		stats.ChangedFiles++
-		stats.EmbeddedChunks += len(chunkIDs)
-		stats.Chunks += len(chunkIDs)
-		nextSources[doc.SourcePath] = indexstate.SourceManifest{
-			Scope:    doc.Scope,
-			Hash:     sourceHash,
-			ChunkIDs: chunkIDs,
-		}
-		processedDocuments++
+	}
+	stats.Generation = buildGeneration
+
+	nextSources := map[string]indexstate.SourceManifest{}
+	results, err := s.indexDocuments(ctx, collectionID, activeGeneration, buildGeneration, activeManifest, documents, effectiveFreshIndex, func(processedDocuments int) {
 		reportDocumentProgress(ctx, stats.Files, processedDocuments)
+	})
+	if err != nil {
+		return stats, err
+	}
+	for _, result := range results {
+		nextSources[result.SourcePath] = result.Source
+		stats.ChangedFiles += result.Stats.ChangedFiles
+		stats.EmbeddedChunks += result.Stats.EmbeddedChunks
+		stats.ReusedFiles += result.Stats.ReusedFiles
+		stats.ReusedChunks += result.Stats.ReusedChunks
+		stats.Chunks += result.Stats.Chunks
 	}
 
 	for sourcePath := range activeManifest.Sources {
 		if _, ok := nextSources[sourcePath]; !ok {
 			stats.DeletedFiles++
 		}
+	}
+	if err := s.deleteStaleBuildSources(ctx, collectionID, buildGeneration, nextSources); err != nil {
+		return stats, err
 	}
 
 	nextManifest := indexstate.Manifest{
@@ -196,9 +183,168 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 	if err := stateStore.Save(nextManifest); err != nil {
 		return stats, err
 	}
-	switched = true
 
 	return stats, nil
+}
+
+func (s *Service) indexDocuments(ctx context.Context, collectionID, activeGeneration, buildGeneration string, activeManifest indexstate.Manifest, documents []document, freshIndex bool, onProgress func(int)) ([]documentIndexResult, error) {
+	if len(documents) == 0 {
+		return nil, nil
+	}
+
+	workerCount := s.Config.EmbedConcurrency
+	if workerCount <= 0 {
+		workerCount = config.DefaultEmbedConcurrency
+	}
+	if workerCount > len(documents) {
+		workerCount = len(documents)
+	}
+
+	workCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	jobs := make(chan document)
+	results := make(chan struct {
+		result documentIndexResult
+		err    error
+	}, len(documents))
+
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for doc := range jobs {
+				result, err := s.indexDocument(workCtx, collectionID, activeGeneration, buildGeneration, activeManifest, doc, freshIndex)
+				if err != nil {
+					cancel()
+				}
+				results <- struct {
+					result documentIndexResult
+					err    error
+				}{result: result, err: err}
+				if err != nil {
+					return
+				}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobs)
+		for _, doc := range documents {
+			select {
+			case jobs <- doc:
+			case <-workCtx.Done():
+				return
+			}
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	out := make([]documentIndexResult, 0, len(documents))
+	var firstErr error
+	processedDocuments := 0
+	for item := range results {
+		if item.err != nil {
+			if firstErr == nil {
+				firstErr = item.err
+			}
+			continue
+		}
+		out = append(out, item.result)
+		processedDocuments++
+		if onProgress != nil {
+			onProgress(processedDocuments)
+		}
+	}
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if len(out) != len(documents) {
+		if err := workCtx.Err(); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("indexed %d documents, want %d", len(out), len(documents))
+	}
+	return out, nil
+}
+
+func (s *Service) indexDocument(ctx context.Context, collectionID, activeGeneration, buildGeneration string, activeManifest indexstate.Manifest, doc document, freshIndex bool) (documentIndexResult, error) {
+	sourceHash := sourceFingerprint(doc, s.Config)
+	chunks := chunk.Split(doc.Text, s.Config.ChunkSize, s.Config.ChunkOverlap)
+	chunkIDs := sourceChunkIDs(doc, len(chunks))
+
+	resumed, resumeOK, hasBuildRecords, err := s.reuseBuildSource(ctx, collectionID, buildGeneration, doc, sourceHash, chunkIDs)
+	if err != nil {
+		return documentIndexResult{}, err
+	}
+	if resumeOK {
+		return documentIndexResult{
+			SourcePath: doc.SourcePath,
+			Source: indexstate.SourceManifest{
+				Scope:    doc.Scope,
+				Hash:     sourceHash,
+				ChunkIDs: resumed,
+			},
+			Stats: Stats{
+				ReusedFiles:  1,
+				ReusedChunks: len(resumed),
+				Chunks:       len(resumed),
+			},
+		}, nil
+	}
+
+	if activeGeneration != "" && !freshIndex {
+		if activeSource, ok := activeManifest.Sources[doc.SourcePath]; ok && activeSource.Hash == sourceHash {
+			if hasBuildRecords {
+				if err := s.deleteBuildSourceRecords(ctx, collectionID, buildGeneration, doc); err != nil {
+					return documentIndexResult{}, err
+				}
+			}
+			chunkIDs, copied, err := s.copyUnchangedSource(ctx, collectionID, activeGeneration, buildGeneration, doc, sourceHash)
+			if err != nil {
+				return documentIndexResult{}, err
+			}
+			if copied {
+				return documentIndexResult{
+					SourcePath: doc.SourcePath,
+					Source: indexstate.SourceManifest{
+						Scope:    doc.Scope,
+						Hash:     sourceHash,
+						ChunkIDs: chunkIDs,
+					},
+					Stats: Stats{
+						ReusedFiles:  1,
+						ReusedChunks: len(chunkIDs),
+						Chunks:       len(chunkIDs),
+					},
+				}, nil
+			}
+		}
+	}
+
+	chunkIDs, err = s.indexChangedSource(ctx, collectionID, buildGeneration, doc, sourceHash, chunks, chunkIDs, hasBuildRecords)
+	if err != nil {
+		return documentIndexResult{}, err
+	}
+	return documentIndexResult{
+		SourcePath: doc.SourcePath,
+		Source: indexstate.SourceManifest{
+			Scope:    doc.Scope,
+			Hash:     sourceHash,
+			ChunkIDs: chunkIDs,
+		},
+		Stats: Stats{
+			ChangedFiles:   1,
+			EmbeddedChunks: len(chunkIDs),
+			Chunks:         len(chunkIDs),
+		},
+	}, nil
 }
 
 func reportDocumentProgress(ctx context.Context, totalDocuments, processedDocuments int) {
@@ -273,18 +419,51 @@ func (s *Service) copyUnchangedSource(ctx context.Context, collectionID, activeG
 	return chunkIDs, true, nil
 }
 
-func (s *Service) indexChangedSource(ctx context.Context, collectionID, generation string, doc document, sourceHash string) ([]string, error) {
-	chunks := chunk.Split(doc.Text, s.Config.ChunkSize, s.Config.ChunkOverlap)
+func (s *Service) reuseBuildSource(ctx context.Context, collectionID, generation string, doc document, sourceHash string, expectedChunkIDs []string) ([]string, bool, bool, error) {
+	if generation == "" {
+		return nil, false, false, nil
+	}
+	records, err := s.Chroma.GetRecordsBySource(ctx, collectionID, generation, doc.Scope, doc.SourcePath)
+	if err != nil {
+		return nil, false, false, fmt.Errorf("load resumable source records: %w", err)
+	}
+	hasRecords := len(records) > 0
+	if len(records) == 0 || len(records) != len(expectedChunkIDs) {
+		return nil, false, hasRecords, nil
+	}
+	sort.SliceStable(records, func(i, j int) bool {
+		return metadataInt(records[i].Metadata["chunk_index"]) < metadataInt(records[j].Metadata["chunk_index"])
+	})
+
+	for i, record := range records {
+		if fmt.Sprint(record.Metadata["source_hash"]) != sourceHash {
+			return nil, false, hasRecords, nil
+		}
+		chunkID, _ := record.Metadata["chunk_id"].(string)
+		if chunkID == "" {
+			chunkID = scopedChunkID(doc.Scope, doc.SourcePath, metadataInt(record.Metadata["chunk_index"]))
+		}
+		if chunkID != expectedChunkIDs[i] || len(record.Embedding) == 0 {
+			return nil, false, hasRecords, nil
+		}
+	}
+	return append([]string(nil), expectedChunkIDs...), true, hasRecords, nil
+}
+
+func (s *Service) indexChangedSource(ctx context.Context, collectionID, generation string, doc document, sourceHash string, chunks []string, chunkIDs []string, deleteExisting bool) ([]string, error) {
+	if deleteExisting {
+		if err := s.deleteBuildSourceRecords(ctx, collectionID, generation, doc); err != nil {
+			return nil, err
+		}
+	}
 	if len(chunks) == 0 {
 		return nil, nil
 	}
 
 	ids := make([]string, 0, len(chunks))
 	metadatas := make([]map[string]any, 0, len(chunks))
-	chunkIDs := make([]string, 0, len(chunks))
 	for i := range chunks {
-		chunkID := scopedChunkID(doc.Scope, doc.SourcePath, i)
-		chunkIDs = append(chunkIDs, chunkID)
+		chunkID := chunkIDs[i]
 		ids = append(ids, generationChunkID(generation, chunkID))
 		metadatas = append(metadatas, map[string]any{
 			"scope":            doc.Scope,
@@ -302,7 +481,7 @@ func (s *Service) indexChangedSource(ctx context.Context, collectionID, generati
 			end = len(chunks)
 		}
 		batchTexts := chunks[i:end]
-		embeddings, err := s.Ollama.Embed(ctx, s.Config.EmbedModel, batchTexts)
+		embeddings, err := s.Ollama.Embed(ctx, s.Config.EmbedModel, batchTexts, ollama.EmbedOptions{NumThreads: s.Config.EmbedNumThreads})
 		if err != nil {
 			return nil, fmt.Errorf("embed batch: %w", err)
 		}
@@ -312,6 +491,41 @@ func (s *Service) indexChangedSource(ctx context.Context, collectionID, generati
 	}
 
 	return chunkIDs, nil
+}
+
+func (s *Service) deleteBuildSourceRecords(ctx context.Context, collectionID, generation string, doc document) error {
+	if generation == "" {
+		return nil
+	}
+	where := store.WhereAnd(
+		map[string]any{"index_generation": generation},
+		map[string]any{"scope": doc.Scope},
+		map[string]any{"source_path": doc.SourcePath},
+	)
+	if err := s.Chroma.DeleteWhere(ctx, collectionID, where); err != nil {
+		return fmt.Errorf("delete stale build source records: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) deleteStaleBuildSources(ctx context.Context, collectionID, generation string, nextSources map[string]indexstate.SourceManifest) error {
+	sourcePaths, err := s.Chroma.ListSourcePaths(ctx, collectionID, generation, "all")
+	if err != nil {
+		return fmt.Errorf("list build generation sources: %w", err)
+	}
+	for _, sourcePath := range sourcePaths {
+		if _, ok := nextSources[sourcePath]; ok {
+			continue
+		}
+		where := store.WhereAnd(
+			map[string]any{"index_generation": generation},
+			map[string]any{"source_path": sourcePath},
+		)
+		if err := s.Chroma.DeleteWhere(ctx, collectionID, where); err != nil {
+			return fmt.Errorf("delete stale build source %s: %w", sourcePath, err)
+		}
+	}
+	return nil
 }
 
 func writeBatches(ctx context.Context, chroma *store.ChromaClient, collectionID string, ids []string, documents []string, metadatas []map[string]any, embeddings [][]float64) error {
@@ -488,6 +702,14 @@ func scopedChunkID(scope, sourcePath string, index int) string {
 	seed := fmt.Sprintf("%s|%s|%d", scope, sourcePath, index)
 	h := sha1.Sum([]byte(seed))
 	return fmt.Sprintf("%s:%s", scope, hex.EncodeToString(h[:])[:16])
+}
+
+func sourceChunkIDs(doc document, count int) []string {
+	chunkIDs := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		chunkIDs = append(chunkIDs, scopedChunkID(doc.Scope, doc.SourcePath, i))
+	}
+	return chunkIDs
 }
 
 func generationChunkID(generation, chunkID string) string {

@@ -57,13 +57,7 @@ func TestRunSuccess(t *testing.T) {
 	})
 
 	loadConfig = func() (config.Config, error) {
-		return config.Config{
-			OllamaHost:     "http://127.0.0.1:11434",
-			ChromaURL:      "http://127.0.0.1:8000",
-			ChromaTenant:   "default_tenant",
-			ChromaDatabase: "default_database",
-			IndexStateDir:  t.TempDir(),
-		}, nil
+		return testConfig(t.TempDir()), nil
 	}
 
 	newIndexer = func(*config.Config, *ollama.Client, *store.ChromaClient) indexer {
@@ -113,13 +107,7 @@ func TestRunCommandHumanOutput(t *testing.T) {
 	})
 
 	loadConfig = func() (config.Config, error) {
-		return config.Config{
-			OllamaHost:     "http://127.0.0.1:11434",
-			ChromaURL:      "http://127.0.0.1:8000",
-			ChromaTenant:   "default_tenant",
-			ChromaDatabase: "default_database",
-			IndexStateDir:  t.TempDir(),
-		}, nil
+		return testConfig(t.TempDir()), nil
 	}
 
 	newIndexer = func(*config.Config, *ollama.Client, *store.ChromaClient) indexer {
@@ -176,13 +164,7 @@ func TestRunCommandJSONOutput(t *testing.T) {
 	})
 
 	loadConfig = func() (config.Config, error) {
-		return config.Config{
-			OllamaHost:     "http://127.0.0.1:11434",
-			ChromaURL:      "http://127.0.0.1:8000",
-			ChromaTenant:   "default_tenant",
-			ChromaDatabase: "default_database",
-			IndexStateDir:  t.TempDir(),
-		}, nil
+		return testConfig(t.TempDir()), nil
 	}
 
 	newIndexer = func(*config.Config, *ollama.Client, *store.ChromaClient) indexer {
@@ -237,13 +219,7 @@ func TestRunBusyDoesNotRetry(t *testing.T) {
 
 	indexStateDir := t.TempDir()
 	loadConfig = func() (config.Config, error) {
-		return config.Config{
-			OllamaHost:     "http://127.0.0.1:11434",
-			ChromaURL:      "http://127.0.0.1:8000",
-			ChromaTenant:   "default_tenant",
-			ChromaDatabase: "default_database",
-			IndexStateDir:  indexStateDir,
-		}, nil
+		return testConfig(indexStateDir), nil
 	}
 
 	held, err := reindexjob.New(indexStateDir).Start(context.Background(), reindexjob.TriggerCLI)
@@ -281,13 +257,7 @@ func TestRunCLIHumanBusyOutput(t *testing.T) {
 
 	indexStateDir := t.TempDir()
 	loadConfig = func() (config.Config, error) {
-		return config.Config{
-			OllamaHost:     "http://127.0.0.1:11434",
-			ChromaURL:      "http://127.0.0.1:8000",
-			ChromaTenant:   "default_tenant",
-			ChromaDatabase: "default_database",
-			IndexStateDir:  indexStateDir,
-		}, nil
+		return testConfig(indexStateDir), nil
 	}
 
 	held, err := reindexjob.New(indexStateDir).Start(context.Background(), reindexjob.TriggerMCPTool)
@@ -389,10 +359,14 @@ func TestReindexWithRetryTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 
-	if _, err := reindexWithRetry(ctx, fakeIndexer{reindex: func(context.Context) (ingest.Stats, error) {
-		return ingest.Stats{}, errors.New("still failing")
-	}}); err == nil {
+	stats, err := reindexWithRetry(ctx, fakeIndexer{reindex: func(context.Context) (ingest.Stats, error) {
+		return ingest.Stats{Generation: "gen-draft"}, errors.New("still failing")
+	}})
+	if err == nil {
 		t.Fatal("expected timeout error")
+	}
+	if stats.Generation != "gen-draft" {
+		t.Fatalf("Generation after timeout = %q, want gen-draft", stats.Generation)
 	}
 }
 
@@ -407,4 +381,15 @@ func TestDependencyForReindexError(t *testing.T) {
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func testConfig(indexStateDir string) config.Config {
+	return config.Config{
+		OllamaHost:     "http://127.0.0.1:11434",
+		ChromaURL:      "http://127.0.0.1:8000",
+		ChromaTenant:   "default_tenant",
+		ChromaDatabase: "default_database",
+		IndexStateDir:  indexStateDir,
+		ReindexTimeout: time.Minute,
+	}
 }

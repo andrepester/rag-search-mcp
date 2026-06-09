@@ -15,9 +15,14 @@ type Client struct {
 	http    *http.Client
 }
 
+type EmbedOptions struct {
+	NumThreads int
+}
+
 type embedRequest struct {
-	Model string   `json:"model"`
-	Input []string `json:"input"`
+	Model   string         `json:"model"`
+	Input   []string       `json:"input"`
+	Options map[string]any `json:"options,omitempty"`
 }
 
 type embedResponse struct {
@@ -51,12 +56,16 @@ func (c *Client) Check(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) Embed(ctx context.Context, model string, inputs []string) ([][]float64, error) {
+func (c *Client) Embed(ctx context.Context, model string, inputs []string, opts ...EmbedOptions) ([][]float64, error) {
 	if len(inputs) == 0 {
 		return nil, nil
 	}
 
-	body, err := json.Marshal(embedRequest{Model: model, Input: inputs})
+	request := embedRequest{Model: model, Input: inputs}
+	if len(opts) > 0 && opts[0].NumThreads > 0 {
+		request.Options = map[string]any{"num_thread": opts[0].NumThreads}
+	}
+	body, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("marshal embed request: %w", err)
 	}
