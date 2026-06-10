@@ -33,6 +33,11 @@ if is_non_empty_non_ws "${RAG_EMBED_CONCURRENCY-}"; then
 else
 	embed_concurrency=$(resolve_host_override RAG_EMBED_CONCURRENCY '')
 fi
+if is_non_empty_non_ws "${RAG_EMBED_BATCH_SIZE-}"; then
+	embed_batch_size=${RAG_EMBED_BATCH_SIZE-}
+else
+	embed_batch_size=$(resolve_host_override RAG_EMBED_BATCH_SIZE '')
+fi
 if is_non_empty_non_ws "${RAG_EMBED_NUM_THREADS-}"; then
 	embed_num_threads=${RAG_EMBED_NUM_THREADS-}
 else
@@ -242,6 +247,9 @@ if is_non_empty_non_ws "$index_subdir"; then
 fi
 if is_non_empty_non_ws "$embed_concurrency"; then
 	set -- "$@" -e RAG_EMBED_CONCURRENCY="$embed_concurrency"
+fi
+if is_non_empty_non_ws "$embed_batch_size"; then
+	set -- "$@" -e RAG_EMBED_BATCH_SIZE="$embed_batch_size"
 fi
 if is_non_empty_non_ws "$embed_num_threads"; then
 	set -- "$@" -e RAG_EMBED_NUM_THREADS="$embed_num_threads"

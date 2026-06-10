@@ -99,6 +99,7 @@ var defaults = map[string]string{
 	"RAG_MAX_SEARCH_DISTANCE": "0.50",
 	"RAG_INDEX_LIMIT":         "0",
 	"RAG_EMBED_CONCURRENCY":   strconv.Itoa(config.DefaultEmbedConcurrency),
+	"RAG_EMBED_BATCH_SIZE":    strconv.Itoa(config.DefaultEmbedBatchSize),
 	"RAG_EMBED_NUM_THREADS":   strconv.Itoa(config.DefaultEmbedNumThreads),
 	"RAG_REINDEX_TIMEOUT":     config.DefaultReindexTimeout,
 	"RAG_LOG_LEVEL":           "info",
@@ -196,6 +197,7 @@ func (c *checker) checkRuntimeValues() {
 	c.checkPositiveInt("RAG_MAX_TOP_K")
 	c.checkNonNegativeInt("RAG_INDEX_LIMIT")
 	c.checkPositiveInt("RAG_EMBED_CONCURRENCY")
+	c.checkPositiveInt("RAG_EMBED_BATCH_SIZE")
 	c.checkNonNegativeInt("RAG_EMBED_NUM_THREADS")
 	c.checkDuration("RAG_REINDEX_TIMEOUT")
 	c.checkSearchDistance()

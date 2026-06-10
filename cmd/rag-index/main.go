@@ -196,7 +196,10 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 	retryCtx, cancel := context.WithTimeout(ctx, cfg.ReindexTimeout)
 	defer cancel()
 
-	run, err := reindexjob.New(cfg.IndexStateDir).StartWithOptions(ctx, reindexjob.TriggerCLI, reindexjob.StartOptions{IndexSubdir: cfg.IndexSubdir})
+	run, err := reindexjob.New(cfg.IndexStateDir).StartWithOptions(ctx, reindexjob.TriggerCLI, reindexjob.StartOptions{
+		IndexSubdir:    cfg.IndexSubdir,
+		EmbedBatchSize: effectiveEmbedBatchSize(cfg),
+	})
 	if err != nil {
 		return reindexResult{}, err
 	}
@@ -214,6 +217,7 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 		slog.Int("index_limit", cfg.IndexLimit),
 		slog.String("index_subdir", cfg.IndexSubdir),
 		slog.Int("embed_concurrency", cfg.EmbedConcurrency),
+		slog.Int("embed_batch_size", effectiveEmbedBatchSize(cfg)),
 		slog.Int("embed_num_threads", cfg.EmbedNumThreads),
 		slog.String("collection", cfg.CollectionName),
 	)
@@ -232,6 +236,9 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 	})
 
 	stats, err := reindexWithRetry(progressCtx, ingestSvc)
+	if stats.EmbedBatchSize <= 0 {
+		stats.EmbedBatchSize = effectiveEmbedBatchSize(cfg)
+	}
 	result.Stats = stats
 	result.Duration = time.Since(start)
 	if finishErr := run.Finish(ctx, stats, err); finishErr != nil {
@@ -257,6 +264,7 @@ func runReindex(ctx context.Context, logger *slog.Logger) (reindexResult, error)
 		slog.Int("reused_files", stats.ReusedFiles),
 		slog.Int("embedded_chunks", stats.EmbeddedChunks),
 		slog.Int("reused_chunks", stats.ReusedChunks),
+		slog.Int("embed_batch_size", stats.EmbedBatchSize),
 		slog.String("generation", stats.Generation),
 		slog.String("index_subdir", stats.IndexSubdir),
 		slog.String("job_id", run.Job.ID),
@@ -301,9 +309,16 @@ func componentLogger(logger *slog.Logger, component string) *slog.Logger {
 	return logger.With(slog.String("component", component))
 }
 
+func effectiveEmbedBatchSize(cfg config.Config) int {
+	if cfg.EmbedBatchSize <= 0 {
+		return config.DefaultEmbedBatchSize
+	}
+	return cfg.EmbedBatchSize
+}
+
 func renderHumanResult(stdout io.Writer, result reindexResult) error {
 	if _, err := fmt.Fprintf(stdout,
-		"index: complete\njob: %s\nduration: %s\nfiles: %d total, %d docs, %d code\nchunks: %d total, %d embedded, %d reused\nchanges: %d changed, %d deleted, %d reused files\ngeneration: %s\n",
+		"index: complete\njob: %s\nduration: %s\nfiles: %d total, %d docs, %d code\nchunks: %d total, %d embedded, %d reused\nembed_batch_size: %d\nchanges: %d changed, %d deleted, %d reused files\ngeneration: %s\n",
 		result.Job.ID,
 		result.Duration.Round(time.Millisecond),
 		result.Stats.Files,
@@ -312,6 +327,7 @@ func renderHumanResult(stdout io.Writer, result reindexResult) error {
 		result.Stats.Chunks,
 		result.Stats.EmbeddedChunks,
 		result.Stats.ReusedChunks,
+		result.Stats.EmbedBatchSize,
 		result.Stats.ChangedFiles,
 		result.Stats.DeletedFiles,
 		result.Stats.ReusedFiles,

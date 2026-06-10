@@ -748,6 +748,7 @@ func TestReindexHonorsIndexLimit(t *testing.T) {
 
 func TestReindexSplitsChangedSourceIntoEmbedBatches(t *testing.T) {
 	ctx := context.Background()
+	embedBatchSize := 3
 	root := t.TempDir()
 	docsDir := filepath.Join(root, "docs")
 	if err := os.MkdirAll(docsDir, 0o755); err != nil {
@@ -779,6 +780,7 @@ func TestReindexSplitsChangedSourceIntoEmbedBatches(t *testing.T) {
 		ChunkSize:        40,
 		ChunkOverlap:     0,
 		EnableCodeIngest: false,
+		EmbedBatchSize:   embedBatchSize,
 	}
 	svc := &Service{
 		Config: cfg,
@@ -792,6 +794,9 @@ func TestReindexSplitsChangedSourceIntoEmbedBatches(t *testing.T) {
 	}
 	if stats.EmbeddedChunks <= embedBatchSize {
 		t.Fatalf("EmbeddedChunks = %d, want more than batch size %d", stats.EmbeddedChunks, embedBatchSize)
+	}
+	if stats.EmbedBatchSize != embedBatchSize {
+		t.Fatalf("EmbedBatchSize = %d, want %d", stats.EmbedBatchSize, embedBatchSize)
 	}
 	if got := ollamaBackend.calls(); got < 2 {
 		t.Fatalf("embedding calls = %d, want split batches", got)

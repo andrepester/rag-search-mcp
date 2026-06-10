@@ -57,7 +57,9 @@ func TestRunSuccess(t *testing.T) {
 	})
 
 	loadConfig = func() (config.Config, error) {
-		return testConfig(t.TempDir()), nil
+		cfg := testConfig(t.TempDir())
+		cfg.EmbedBatchSize = 32
+		return cfg, nil
 	}
 
 	newIndexer = func(*config.Config, *ollama.Client, *store.ChromaClient) indexer {
@@ -76,16 +78,26 @@ func TestRunSuccess(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty in logs mode", out.String())
 	}
 
+	var startRecord map[string]any
 	var completion map[string]any
 	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
 		var record map[string]any
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			t.Fatalf("unmarshal log line: %v\n%s", err, line)
 		}
+		if record["event"] == "reindex_start" {
+			startRecord = record
+		}
 		if record["event"] == "reindex_complete" {
 			completion = record
 			break
 		}
+	}
+	if startRecord == nil {
+		t.Fatalf("missing reindex_start log in %s", logs.String())
+	}
+	if startRecord["embed_batch_size"] != float64(32) {
+		t.Fatalf("start embed_batch_size = %v, want 32", startRecord["embed_batch_size"])
 	}
 	if completion == nil {
 		t.Fatalf("missing reindex_complete log in %s", logs.String())
@@ -95,6 +107,9 @@ func TestRunSuccess(t *testing.T) {
 	}
 	if completion["job_id"] == "" {
 		t.Fatalf("missing job_id in completion log: %+v", completion)
+	}
+	if completion["embed_batch_size"] != float64(32) {
+		t.Fatalf("completion embed_batch_size = %v, want 32", completion["embed_batch_size"])
 	}
 }
 
@@ -141,6 +156,7 @@ func TestRunCommandHumanOutput(t *testing.T) {
 		"job: reindex-",
 		"files: 106 total, 105 docs, 1 code",
 		"chunks: 176 total, 0 embedded, 176 reused",
+		"embed_batch_size: 16",
 		"changes: 0 changed, 0 deleted, 106 reused files",
 		"generation: gen-human",
 		"index_subdir: docs/demo/technology",
@@ -204,7 +220,7 @@ func TestRunCommandJSONOutput(t *testing.T) {
 	if result.JobID == "" {
 		t.Fatalf("missing job ID in %+v", result)
 	}
-	if result.Stats.Chunks != 4 || result.Stats.Generation != "gen-json" || result.Stats.IndexSubdir != "code/internal/ingest" {
+	if result.Stats.Chunks != 4 || result.Stats.Generation != "gen-json" || result.Stats.IndexSubdir != "code/internal/ingest" || result.Stats.EmbedBatchSize != config.DefaultEmbedBatchSize {
 		t.Fatalf("stats = %+v", result.Stats)
 	}
 	if strings.Contains(logs.String(), "reindex_complete") {

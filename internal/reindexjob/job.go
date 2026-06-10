@@ -33,16 +33,18 @@ type Coordinator struct {
 }
 
 type StartOptions struct {
-	IndexSubdir string
+	IndexSubdir    string
+	EmbedBatchSize int
 }
 
 type Job struct {
-	ID          string `json:"job_id"`
-	Trigger     string `json:"trigger"`
-	PID         int    `json:"pid"`
-	Hostname    string `json:"hostname,omitempty"`
-	StartedAt   string `json:"started_at"`
-	IndexSubdir string `json:"index_subdir,omitempty"`
+	ID             string `json:"job_id"`
+	Trigger        string `json:"trigger"`
+	PID            int    `json:"pid"`
+	Hostname       string `json:"hostname,omitempty"`
+	StartedAt      string `json:"started_at"`
+	IndexSubdir    string `json:"index_subdir,omitempty"`
+	EmbedBatchSize int    `json:"embed_batch_size,omitempty"`
 }
 
 type Status struct {
@@ -76,6 +78,7 @@ type RunRecord struct {
 	ReusedFiles        int    `json:"reused_files,omitempty"`
 	EmbeddedChunks     int    `json:"embedded_chunks,omitempty"`
 	ReusedChunks       int    `json:"reused_chunks,omitempty"`
+	EmbedBatchSize     int    `json:"embed_batch_size,omitempty"`
 	Generation         string `json:"generation,omitempty"`
 	IndexSubdir        string `json:"index_subdir,omitempty"`
 	Error              string `json:"error,omitempty"`
@@ -110,7 +113,7 @@ func (c *Coordinator) Start(ctx context.Context, trigger string) (*Run, error) {
 
 func (c *Coordinator) StartWithOptions(_ context.Context, trigger string, opts StartOptions) (*Run, error) {
 	trigger = normalizeTrigger(trigger)
-	job := newJob(trigger, time.Now().UTC(), opts.IndexSubdir)
+	job := newJob(trigger, time.Now().UTC(), opts.IndexSubdir, opts.EmbedBatchSize)
 	lock, err := c.tryAcquireReindexLock()
 	if err != nil {
 		if errors.Is(err, errLockBusy) {
@@ -338,6 +341,10 @@ func runRecord(job Job, stats ingest.Stats, runErr error, completedAt time.Time)
 	if indexSubdir == "" {
 		indexSubdir = job.IndexSubdir
 	}
+	embedBatchSize := stats.EmbedBatchSize
+	if embedBatchSize <= 0 {
+		embedBatchSize = job.EmbedBatchSize
+	}
 	processedDocuments := stats.Files
 	if runErr != nil {
 		processedDocuments = stats.ChangedFiles + stats.ReusedFiles
@@ -358,21 +365,23 @@ func runRecord(job Job, stats ingest.Stats, runErr error, completedAt time.Time)
 		ReusedFiles:        stats.ReusedFiles,
 		EmbeddedChunks:     stats.EmbeddedChunks,
 		ReusedChunks:       stats.ReusedChunks,
+		EmbedBatchSize:     embedBatchSize,
 		Generation:         stats.Generation,
 		IndexSubdir:        indexSubdir,
 		Error:              errText,
 	}
 }
 
-func newJob(trigger string, now time.Time, indexSubdir string) Job {
+func newJob(trigger string, now time.Time, indexSubdir string, embedBatchSize int) Job {
 	hostname, _ := os.Hostname()
 	return Job{
-		ID:          fmt.Sprintf("reindex-%s-%d", now.Format("20060102T150405.000000000Z"), os.Getpid()),
-		Trigger:     trigger,
-		PID:         os.Getpid(),
-		Hostname:    hostname,
-		StartedAt:   now.Format(time.RFC3339Nano),
-		IndexSubdir: strings.TrimSpace(indexSubdir),
+		ID:             fmt.Sprintf("reindex-%s-%d", now.Format("20060102T150405.000000000Z"), os.Getpid()),
+		Trigger:        trigger,
+		PID:            os.Getpid(),
+		Hostname:       hostname,
+		StartedAt:      now.Format(time.RFC3339Nano),
+		IndexSubdir:    strings.TrimSpace(indexSubdir),
+		EmbedBatchSize: embedBatchSize,
 	}
 }
 

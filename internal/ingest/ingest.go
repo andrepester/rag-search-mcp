@@ -39,6 +39,7 @@ type Stats struct {
 	ReusedFiles    int    `json:"reused_files"`
 	EmbeddedChunks int    `json:"embedded_chunks"`
 	ReusedChunks   int    `json:"reused_chunks"`
+	EmbedBatchSize int    `json:"embed_batch_size,omitempty"`
 	Generation     string `json:"generation"`
 	IndexSubdir    string `json:"index_subdir,omitempty"`
 }
@@ -101,10 +102,7 @@ var codeExt = map[string]struct{}{
 	".sh":    {},
 }
 
-const (
-	embedBatchSize       = 16
-	chromaWriteBatchSize = 32
-)
+const chromaWriteBatchSize = 32
 
 func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 	collectionID, err := s.Chroma.EnsureCollection(ctx, s.Config.CollectionName)
@@ -156,6 +154,7 @@ func (s *Service) Reindex(ctx context.Context) (Stats, error) {
 		}
 	}
 	stats.Generation = buildGeneration
+	stats.EmbedBatchSize = s.effectiveEmbedBatchSize()
 
 	nextSources := map[string]indexstate.SourceManifest{}
 	results, err := s.indexDocuments(ctx, collectionID, activeGeneration, buildGeneration, activeManifest, documents, effectiveFreshIndex, func(processedDocuments int) {
@@ -483,6 +482,7 @@ func (s *Service) indexChangedSource(ctx context.Context, collectionID, generati
 		})
 	}
 
+	embedBatchSize := s.effectiveEmbedBatchSize()
 	for i := 0; i < len(chunks); i += embedBatchSize {
 		end := i + embedBatchSize
 		if end > len(chunks) {
@@ -551,7 +551,10 @@ func writeBatches(ctx context.Context, chroma *store.ChromaClient, collectionID 
 
 func (s *Service) loadDocuments() ([]document, Stats, error) {
 	out := make([]document, 0)
-	stats := Stats{IndexSubdir: strings.TrimSpace(s.Config.IndexSubdir)}
+	stats := Stats{
+		EmbedBatchSize: s.effectiveEmbedBatchSize(),
+		IndexSubdir:    strings.TrimSpace(s.Config.IndexSubdir),
+	}
 
 	if s.Config.IndexSubdir != "" {
 		docs, err := s.loadIndexSubdirDocuments()
@@ -580,8 +583,16 @@ func (s *Service) loadDocuments() ([]document, Stats, error) {
 	}
 
 	stats = documentStats(out)
+	stats.EmbedBatchSize = s.effectiveEmbedBatchSize()
 	stats.IndexSubdir = strings.TrimSpace(s.Config.IndexSubdir)
 	return out, stats, nil
+}
+
+func (s *Service) effectiveEmbedBatchSize() int {
+	if s == nil || s.Config == nil || s.Config.EmbedBatchSize <= 0 {
+		return config.DefaultEmbedBatchSize
+	}
+	return s.Config.EmbedBatchSize
 }
 
 func (s *Service) loadIndexSubdirDocuments() ([]document, error) {

@@ -19,6 +19,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("RAG_INDEX_LIMIT", "10")
 	t.Setenv("RAG_INDEX_SUBDIR", "docs/demo//technology")
 	t.Setenv("RAG_EMBED_CONCURRENCY", "3")
+	t.Setenv("RAG_EMBED_BATCH_SIZE", "32")
 	t.Setenv("RAG_EMBED_NUM_THREADS", "4")
 	t.Setenv("RAG_REINDEX_TIMEOUT", "45m")
 	t.Setenv("OLLAMA_HOST", "http://ollama.example.internal:11434")
@@ -52,6 +53,9 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	if cfg.EmbedConcurrency != 3 {
 		t.Fatalf("EmbedConcurrency = %d, want 3", cfg.EmbedConcurrency)
 	}
+	if cfg.EmbedBatchSize != 32 {
+		t.Fatalf("EmbedBatchSize = %d, want 32", cfg.EmbedBatchSize)
+	}
 	if cfg.EmbedNumThreads != 4 {
 		t.Fatalf("EmbedNumThreads = %d, want 4", cfg.EmbedNumThreads)
 	}
@@ -76,10 +80,18 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 }
 
 func TestLoadValidation(t *testing.T) {
-	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_MAX_SEARCH_DISTANCE", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_INDEX_LIMIT", "RAG_INDEX_SUBDIR", "RAG_EMBED_CONCURRENCY", "RAG_EMBED_NUM_THREADS", "RAG_REINDEX_TIMEOUT", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT", "OLLAMA_HOST"} {
+	for _, key := range []string{"RAG_CHUNK_SIZE", "RAG_CHUNK_OVERLAP", "RAG_SCOPE_DEFAULT", "RAG_HTTP_PORT", "RAG_MAX_TOP_K", "RAG_MAX_SEARCH_DISTANCE", "RAG_ENABLE_CODE_INGEST", "FRESH_INDEX", "RAG_INDEX_LIMIT", "RAG_INDEX_SUBDIR", "RAG_EMBED_CONCURRENCY", "RAG_EMBED_BATCH_SIZE", "RAG_EMBED_NUM_THREADS", "RAG_REINDEX_TIMEOUT", "RAG_LOG_LEVEL", "RAG_LOG_FORMAT", "OLLAMA_HOST"} {
 		_ = os.Unsetenv(key)
 	}
 	t.Setenv("OLLAMA_HOST", "http://ollama.example.internal:11434")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() failed with defaults: %v", err)
+	}
+	if cfg.EmbedBatchSize != DefaultEmbedBatchSize {
+		t.Fatalf("default EmbedBatchSize = %d, want %d", cfg.EmbedBatchSize, DefaultEmbedBatchSize)
+	}
 
 	t.Setenv("RAG_CHUNK_SIZE", "10")
 	t.Setenv("RAG_CHUNK_OVERLAP", "10")
@@ -157,6 +169,17 @@ func TestLoadValidation(t *testing.T) {
 	}
 
 	t.Setenv("RAG_EMBED_CONCURRENCY", "2")
+	t.Setenv("RAG_EMBED_BATCH_SIZE", "not-a-number")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for embed batch size integer")
+	}
+
+	t.Setenv("RAG_EMBED_BATCH_SIZE", "0")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected validation error for embed batch size range")
+	}
+
+	t.Setenv("RAG_EMBED_BATCH_SIZE", "16")
 	t.Setenv("RAG_EMBED_NUM_THREADS", "not-a-number")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected validation error for embed num threads integer")

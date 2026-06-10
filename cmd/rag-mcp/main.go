@@ -253,6 +253,7 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 				slog.String("trigger", "mcp_tool"),
 				slog.String("job_id", job.ID),
 				slog.String("index_subdir", job.IndexSubdir),
+				slog.Int("embed_batch_size", job.EmbedBatchSize),
 			)
 		})
 		if err != nil {
@@ -289,25 +290,27 @@ func newMCPHandler(ragSvc ragService, logger *slog.Logger, metrics *observabilit
 			slog.Int("reused_files", stats.ReusedFiles),
 			slog.Int("embedded_chunks", stats.EmbeddedChunks),
 			slog.Int("reused_chunks", stats.ReusedChunks),
+			slog.Int("embed_batch_size", stats.EmbedBatchSize),
 			slog.String("generation", stats.Generation),
 			slog.String("index_subdir", stats.IndexSubdir),
 			slog.String("job_id", jobID),
 			slog.Int64("duration_ms", durationMillis(start)),
 		)
 		return nil, map[string]any{
-			"ok":              true,
-			"files":           stats.Files,
-			"docs_files":      stats.DocsFiles,
-			"code_files":      stats.CodeFiles,
-			"chunks":          stats.Chunks,
-			"changed_files":   stats.ChangedFiles,
-			"deleted_files":   stats.DeletedFiles,
-			"reused_files":    stats.ReusedFiles,
-			"embedded_chunks": stats.EmbeddedChunks,
-			"reused_chunks":   stats.ReusedChunks,
-			"generation":      stats.Generation,
-			"index_subdir":    stats.IndexSubdir,
-			"job_id":          jobID,
+			"ok":               true,
+			"files":            stats.Files,
+			"docs_files":       stats.DocsFiles,
+			"code_files":       stats.CodeFiles,
+			"chunks":           stats.Chunks,
+			"changed_files":    stats.ChangedFiles,
+			"deleted_files":    stats.DeletedFiles,
+			"reused_files":     stats.ReusedFiles,
+			"embedded_chunks":  stats.EmbeddedChunks,
+			"reused_chunks":    stats.ReusedChunks,
+			"embed_batch_size": stats.EmbedBatchSize,
+			"generation":       stats.Generation,
+			"index_subdir":     stats.IndexSubdir,
+			"job_id":           jobID,
 		}, nil
 	})
 
