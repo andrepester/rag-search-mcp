@@ -319,6 +319,7 @@ func (c *Coordinator) markStaleRunFailed(status Status, job Job) Status {
 		DurationMillis:     durationMillis(job.StartedAt, completedAt),
 		TotalDocuments:     progress.TotalDocuments,
 		ProcessedDocuments: progress.ProcessedDocuments,
+		EmbedBatchSize:     job.EmbedBatchSize,
 		Error:              "reindex process exited before updating job status",
 	}
 	status.Version = statusFileVersion

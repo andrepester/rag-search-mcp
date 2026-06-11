@@ -196,10 +196,11 @@ func TestStatusMarksStaleRunningJobFailed(t *testing.T) {
 	coord := New(t.TempDir())
 
 	job := Job{
-		ID:        "stale-job",
-		Trigger:   TriggerCLI,
-		PID:       12345,
-		StartedAt: "2026-06-05T20:00:00Z",
+		ID:             "stale-job",
+		Trigger:        TriggerCLI,
+		PID:            12345,
+		StartedAt:      "2026-06-05T20:00:00Z",
+		EmbedBatchSize: 32,
 	}
 	if err := coord.recordRunning(job); err != nil {
 		t.Fatalf("recordRunning() failed: %v", err)
@@ -214,5 +215,8 @@ func TestStatusMarksStaleRunningJobFailed(t *testing.T) {
 	}
 	if status.LastRun == nil || status.LastRun.Job.ID != job.ID || status.LastRun.Error == "" {
 		t.Fatalf("LastRun = %+v, want stale failure", status.LastRun)
+	}
+	if status.LastRun.EmbedBatchSize != 32 {
+		t.Fatalf("stale last run embed batch size = %d, want 32", status.LastRun.EmbedBatchSize)
 	}
 }
