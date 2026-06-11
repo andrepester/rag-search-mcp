@@ -83,12 +83,15 @@ func TestRunProgressIsRecordedAndFinished(t *testing.T) {
 	ctx := context.Background()
 	coord := New(t.TempDir())
 
-	run, err := coord.StartWithOptions(ctx, TriggerCLI, StartOptions{IndexSubdir: "docs/demo/technology"})
+	run, err := coord.StartWithOptions(ctx, TriggerCLI, StartOptions{IndexSubdir: "docs/demo/technology", EmbedBatchSize: 32})
 	if err != nil {
 		t.Fatalf("Start() failed: %v", err)
 	}
 	if run.Job.IndexSubdir != "docs/demo/technology" {
 		t.Fatalf("Job.IndexSubdir = %q, want docs/demo/technology", run.Job.IndexSubdir)
+	}
+	if run.Job.EmbedBatchSize != 32 {
+		t.Fatalf("Job.EmbedBatchSize = %d, want 32", run.Job.EmbedBatchSize)
 	}
 	if err := run.UpdateProgress(ctx, Progress{TotalDocuments: 3, ProcessedDocuments: 1}); err != nil {
 		t.Fatalf("UpdateProgress() failed: %v", err)
@@ -101,8 +104,8 @@ func TestRunProgressIsRecordedAndFinished(t *testing.T) {
 	if status.Progress == nil || status.Progress.TotalDocuments != 3 || status.Progress.ProcessedDocuments != 1 {
 		t.Fatalf("progress = %+v, want 1/3", status.Progress)
 	}
-	if status.ActiveJob == nil || status.ActiveJob.IndexSubdir != "docs/demo/technology" {
-		t.Fatalf("active job = %+v, want index subdir", status.ActiveJob)
+	if status.ActiveJob == nil || status.ActiveJob.IndexSubdir != "docs/demo/technology" || status.ActiveJob.EmbedBatchSize != 32 {
+		t.Fatalf("active job = %+v, want index subdir and embed batch size", status.ActiveJob)
 	}
 
 	if err := run.UpdateProgress(ctx, Progress{TotalDocuments: 3, ProcessedDocuments: 9}); err != nil {
@@ -131,6 +134,9 @@ func TestRunProgressIsRecordedAndFinished(t *testing.T) {
 	}
 	if status.LastRun.IndexSubdir != "docs/demo/technology" {
 		t.Fatalf("last run index subdir = %q, want docs/demo/technology", status.LastRun.IndexSubdir)
+	}
+	if status.LastRun.EmbedBatchSize != 32 {
+		t.Fatalf("last run embed batch size = %d, want 32", status.LastRun.EmbedBatchSize)
 	}
 }
 
@@ -190,10 +196,11 @@ func TestStatusMarksStaleRunningJobFailed(t *testing.T) {
 	coord := New(t.TempDir())
 
 	job := Job{
-		ID:        "stale-job",
-		Trigger:   TriggerCLI,
-		PID:       12345,
-		StartedAt: "2026-06-05T20:00:00Z",
+		ID:             "stale-job",
+		Trigger:        TriggerCLI,
+		PID:            12345,
+		StartedAt:      "2026-06-05T20:00:00Z",
+		EmbedBatchSize: 32,
 	}
 	if err := coord.recordRunning(job); err != nil {
 		t.Fatalf("recordRunning() failed: %v", err)
@@ -208,5 +215,8 @@ func TestStatusMarksStaleRunningJobFailed(t *testing.T) {
 	}
 	if status.LastRun == nil || status.LastRun.Job.ID != job.ID || status.LastRun.Error == "" {
 		t.Fatalf("LastRun = %+v, want stale failure", status.LastRun)
+	}
+	if status.LastRun.EmbedBatchSize != 32 {
+		t.Fatalf("stale last run embed batch size = %d, want 32", status.LastRun.EmbedBatchSize)
 	}
 }

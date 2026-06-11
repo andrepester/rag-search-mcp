@@ -15,6 +15,7 @@ const (
 	MinSearchDistance        = 0.01
 	MaxSearchDistance        = 2.00
 	DefaultEmbedConcurrency  = 2
+	DefaultEmbedBatchSize    = 16
 	DefaultEmbedNumThreads   = 0
 	// DefaultReindexTimeout is only the process fallback; RAG_REINDEX_TIMEOUT
 	// from the environment, .env, or Compose takes precedence.
@@ -43,6 +44,7 @@ type Config struct {
 	IndexLimit        int
 	IndexSubdir       string
 	EmbedConcurrency  int
+	EmbedBatchSize    int
 	EmbedNumThreads   int
 	ReindexTimeout    time.Duration
 	LogLevel          string
@@ -118,6 +120,13 @@ func Load() (Config, error) {
 	if embedConcurrency <= 0 {
 		return Config{}, fmt.Errorf("RAG_EMBED_CONCURRENCY must be > 0")
 	}
+	embedBatchSize, err := envInt("RAG_EMBED_BATCH_SIZE", DefaultEmbedBatchSize)
+	if err != nil {
+		return Config{}, err
+	}
+	if embedBatchSize <= 0 {
+		return Config{}, fmt.Errorf("RAG_EMBED_BATCH_SIZE must be > 0")
+	}
 	embedNumThreads, err := envInt("RAG_EMBED_NUM_THREADS", DefaultEmbedNumThreads)
 	if err != nil {
 		return Config{}, err
@@ -190,6 +199,7 @@ func Load() (Config, error) {
 		IndexLimit:        indexLimit,
 		IndexSubdir:       indexSubdir,
 		EmbedConcurrency:  embedConcurrency,
+		EmbedBatchSize:    embedBatchSize,
 		EmbedNumThreads:   embedNumThreads,
 		ReindexTimeout:    reindexTimeout,
 		LogLevel:          logLevel,

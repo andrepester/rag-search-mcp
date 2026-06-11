@@ -295,7 +295,10 @@ metadata remains scope-root relative, such as
 active index and does not change index contents. Indexing sends up to
 `RAG_EMBED_CONCURRENCY=2` embedding requests in parallel by default. Use
 `RAG_EMBED_CONCURRENCY=4 make index` to test a higher parallelism against the
-configured `OLLAMA_HOST`. Use
+configured `OLLAMA_HOST`. Each index-time embedding request sends up to
+`RAG_EMBED_BATCH_SIZE=16` chunks by default. Use
+`RAG_EMBED_BATCH_SIZE=32 make index` or `RAG_EMBED_BATCH_SIZE=64 make index` to
+test larger request batches on the shared embedding host. Use
 `RAG_EMBED_NUM_THREADS=4 make index` to pass Ollama `options.num_thread=4` for
 embedding requests. Use `RAG_REINDEX_TIMEOUT=90m make index` when a slow shared embedding
 host needs more time than the default timeout. Use `make index FRESH_INDEX=1` for a fresh index run. Fresh mode
@@ -419,6 +422,7 @@ boundary.
 | `RAG_MAX_SEARCH_DISTANCE` | `0.50` | Default semantic distance threshold for search relevance; lower is stricter, higher shows more matches |
 | `RAG_INDEX_LIMIT` | `0` | Maximum number of source documents to index; `0` means all discovered docs/code sources |
 | `RAG_EMBED_CONCURRENCY` | `2` | Maximum concurrent index-time embedding requests sent to the configured `OLLAMA_HOST` |
+| `RAG_EMBED_BATCH_SIZE` | `16` | Maximum chunks per Ollama index-time embedding request |
 | `RAG_EMBED_NUM_THREADS` | `0` | Optional Ollama `options.num_thread` value for embedding requests; `0` omits the option |
 | `RAG_REINDEX_TIMEOUT` | `60m` | Maximum duration for a CLI `make index`/`rag-index` run before it is canceled |
 | `RAG_LOG_LEVEL` | `info` | Runtime log level: `debug`, `info`, `warn`, or `error` |
@@ -444,9 +448,21 @@ Search queries and index runs both use this same `EMBED_MODEL`; after changing
 it, rebuild the vector index with `make index FRESH_INDEX=1`.
 If the shared Ollama host is tuned with `OLLAMA_NUM_PARALLEL`, keep
 `RAG_EMBED_CONCURRENCY` at or below that value for indexing smoke tests; `2` is
-the conservative default for small two-core hosts. Use `RAG_EMBED_NUM_THREADS`
-only as an explicit Ollama runner tuning experiment; leave it at `0` when the
-host should choose its own thread count.
+the conservative default for small two-core hosts. Treat
+`RAG_EMBED_CONCURRENCY * RAG_EMBED_BATCH_SIZE` as the maximum in-flight chunk
+load from indexing. Use `RAG_EMBED_NUM_THREADS` only as an explicit Ollama
+runner tuning experiment; leave it at `0` when the host should choose its own
+thread count.
+
+To compare embedding batch sizes, keep corpus, `EMBED_MODEL`,
+`RAG_EMBED_CONCURRENCY`, `RAG_EMBED_NUM_THREADS`, `RAG_REINDEX_TIMEOUT`, and
+`INDEX_SUBDIR` constant and vary only `RAG_EMBED_BATCH_SIZE`. Use
+`FRESH_INDEX=1 OUTPUT=json RAG_EMBED_BATCH_SIZE=<16|32|64> make index` for each
+run so unchanged-source reuse does not hide embedding work. Record
+`duration_ms`, `stats.files`, `stats.chunks`, `stats.embedded_chunks`,
+`stats.embed_batch_size`, computed chunks/min, Ollama CPU/RAM, and any errors or
+timeouts. The repo does not auto-select a value; these measurements define the
+local operating point.
 During `make install`, the configured `OLLAMA_HOST` is written or merged into
 `.env` before the runtime checks run.
 

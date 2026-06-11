@@ -133,7 +133,10 @@ func (s *Service) Reindex(ctx context.Context) (ingest.Stats, error) {
 }
 
 func (s *Service) RunReindex(ctx context.Context, trigger string, onStart func(reindexjob.Job)) (ingest.Stats, error) {
-	run, err := reindexjob.New(s.Config.IndexStateDir).StartWithOptions(ctx, trigger, reindexjob.StartOptions{IndexSubdir: s.Config.IndexSubdir})
+	run, err := reindexjob.New(s.Config.IndexStateDir).StartWithOptions(ctx, trigger, reindexjob.StartOptions{
+		IndexSubdir:    s.Config.IndexSubdir,
+		EmbedBatchSize: effectiveEmbedBatchSize(s.Config),
+	})
 	if err != nil {
 		return ingest.Stats{}, err
 	}
@@ -163,6 +166,13 @@ func (s *Service) RunReindex(ctx context.Context, trigger string, onStart func(r
 		return stats, finishErr
 	}
 	return stats, err
+}
+
+func effectiveEmbedBatchSize(cfg *config.Config) int {
+	if cfg == nil || cfg.EmbedBatchSize <= 0 {
+		return config.DefaultEmbedBatchSize
+	}
+	return cfg.EmbedBatchSize
 }
 
 func (s *Service) ReindexStatus(ctx context.Context) (reindexjob.Status, error) {

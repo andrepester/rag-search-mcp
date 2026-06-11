@@ -58,6 +58,7 @@ func TestCheckReportsFatalRuntimeAndPathErrors(t *testing.T) {
 		"RAG_ENABLE_CODE_INGEST=maybe",
 		"RAG_MAX_SEARCH_DISTANCE=not-a-number",
 		"RAG_EMBED_CONCURRENCY=0",
+		"RAG_EMBED_BATCH_SIZE=0",
 		"RAG_EMBED_NUM_THREADS=-1",
 		"RAG_REINDEX_TIMEOUT=not-a-duration",
 		"RAG_LOG_LEVEL=noisy",
@@ -83,6 +84,7 @@ func TestCheckReportsFatalRuntimeAndPathErrors(t *testing.T) {
 		"RAG_ENABLE_CODE_INGEST_BOOLEAN",
 		"RAG_MAX_SEARCH_DISTANCE_NUMBER",
 		"RAG_EMBED_CONCURRENCY_POSITIVE",
+		"RAG_EMBED_BATCH_SIZE_POSITIVE",
 		"RAG_EMBED_NUM_THREADS_NON_NEGATIVE",
 		"RAG_REINDEX_TIMEOUT_DURATION",
 		"RAG_LOG_LEVEL_VALUE",
@@ -108,6 +110,22 @@ func TestCheckReportsInvalidDotEnvSyntax(t *testing.T) {
 	}
 	if !hasFinding(report, SeverityError, "DOTENV_SYNTAX") {
 		t.Fatalf("missing DOTENV_SYNTAX in %#v", report.Findings)
+	}
+}
+
+func TestCheckReportsInvalidEmbedBatchSizeInteger(t *testing.T) {
+	repoRoot := newConfigDoctorRepo(t)
+	writeFile(t, filepath.Join(repoRoot, ".env"), 0o600, "RAG_EMBED_BATCH_SIZE=not-a-number\n")
+
+	report, err := CheckWithOptions(Options{
+		RepoRoot: repoRoot,
+		Environ:  []string{},
+	})
+	if err != nil {
+		t.Fatalf("CheckWithOptions() failed: %v", err)
+	}
+	if !hasFinding(report, SeverityError, "RAG_EMBED_BATCH_SIZE_INTEGER") {
+		t.Fatalf("missing RAG_EMBED_BATCH_SIZE_INTEGER in %#v", report.Findings)
 	}
 }
 
