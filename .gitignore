@@ -1,25 +1,3 @@
-.opencode/*
-opencode.json
-opencode.json.*
-.env
-AGENTS.md
-.agents/
-.venv/
-__pycache__/
-*.pyc
-
-# Go test coverage
-coverage.out
-coverage.txt
-
-# Generated CI artifacts
-licenses.csv
-sbom-*.cdx.json
-grype-*.sarif
-
-# OS clutter
-.DS_Store
-
 # Go build artifacts
 /rag-mcp
 /rag-index
@@ -45,3 +23,26 @@ data/index/**
 data/models/**
 !data/models/
 !data/models/.gitkeep
+
+# General files
+.opencode/*
+opencode.json
+opencode.json.*
+.env
+AGENTS.md
+.agents/
+.venv/
+__pycache__/
+*.pyc
+
+# Go test coverage
+coverage.out
+coverage.txt
+
+# Generated CI artifacts
+licenses.csv
+sbom-*.cdx.json
+grype-*.sarif
+
+# OS clutter
+.DS_Store
