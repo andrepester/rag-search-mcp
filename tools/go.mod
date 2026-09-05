@@ -1,6 +1,6 @@
 module github.com/andrepester/rag-search-mcp/tools
 
-go 1.25.12
+go 1.26.8
 
 require (
 	github.com/CycloneDX/cyclonedx-gomod v1.10.0
