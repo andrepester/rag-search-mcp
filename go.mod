@@ -4,7 +4,7 @@ go 1.26.8
 
 require (
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
-	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 )
 
 require (
