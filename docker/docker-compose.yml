@@ -1,6 +1,6 @@
 services:
   chroma:
-    image: chromadb/chroma:1.3.5
+    image: chromadb/chroma:1.5.9
     restart: unless-stopped
     healthcheck:
       test:

@@ -65,6 +65,11 @@ rerunning the same policy and scan gates.
 Runtime/product dependencies are governed by the root Go module, the Dockerfile,
 runtime SBOMs, and runtime vulnerability scans.
 
+The runtime image removes `apk-tools` after creating the non-root user so that
+the package manager and its unused libraries are not shipped. The CA bundle is
+copied from the digest-pinned Go base image to preserve HTTPS trust without
+retaining those runtime packages.
+
 Delivery and scan tooling is governed separately:
 
 - Go-based CI tools live in the `tools` Go module and are checked by

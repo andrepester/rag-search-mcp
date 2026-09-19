@@ -565,7 +565,8 @@ Dependabot updates are configured for:
 
 - Go modules
 - GitHub Actions
-- Docker
+- Dockerfiles
+- Docker Compose
 
 ### CI toolchain governance
 
