@@ -35,7 +35,7 @@ jobs:
         run: sh ./shell/ci-sbom-go.sh
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-go-cyclonedx
           path: sbom-go.cdx.json
@@ -67,7 +67,7 @@ jobs:
           fi
 
       - name: Upload license report artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: go-licenses-report
           path: licenses.csv
@@ -88,7 +88,7 @@ jobs:
         run: syft dir:. --exclude ./tools -o cyclonedx-json=sbom-fs.cdx.json
 
       - name: Upload filesystem SBOM artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-fs-cyclonedx
           path: sbom-fs.cdx.json
@@ -106,7 +106,7 @@ jobs:
         run: syft rag-search-mcp-scan:ci -o cyclonedx-json=sbom-image.cdx.json
 
       - name: Upload image SBOM artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-image-cyclonedx
           path: sbom-image.cdx.json
