@@ -522,6 +522,9 @@ sh ./shell/ci-govulncheck.sh
 sh ./shell/ci-mod-tidy-check.sh
 sh ./shell/ci-golden-queries.sh
 sh ./shell/ci-toolchain-security.sh
+sh ./shell/ci-licenses-export.sh
+sh ./shell/ci-licenses-check.sh
+sh ./shell/ci-licenses-policy-smoke.sh
 sh ./shell/ci-container-supply-chain-policy.sh
 sh ./shell/ci-container-supply-chain-policy-smoke.sh
 ```
