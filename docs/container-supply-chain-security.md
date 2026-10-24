@@ -62,6 +62,20 @@ rerunning the same policy and scan gates.
 
 ## Product Dependencies And Delivery Tooling
 
+The Go dependency license allowlist permits MIT, MIT-0, BSD-2-Clause,
+BSD-3-Clause, Apache-2.0, ISC, and MPL-2.0. The shared gate is
+`sh ./shell/ci-licenses-check.sh`; unknown licenses remain blocked.
+
+The pinned `go-licenses` scanner does not recognize the MIT-0 license used by
+`github.com/segmentio/asm` starting with v1.2.1. License export normalizes only
+that module's unknown package rows after checking the SHA-256 digest of its
+complete LICENSE file against the reviewed upstream text. The reference text
+is in `shell/testdata/licenses/segmentio-asm-MIT-0.txt`, copied from
+<https://github.com/segmentio/asm/blob/v1.2.1/LICENSE>. A changed license fails
+closed and requires review; unrelated unknown licenses are never normalized.
+`sh ./shell/ci-licenses-policy-smoke.sh` verifies acceptance and rejection cases
+as part of the existing `sbom-and-licenses` CI job.
+
 Runtime/product dependencies are governed by the root Go module, the Dockerfile,
 runtime SBOMs, and runtime vulnerability scans.
 
