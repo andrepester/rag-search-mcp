@@ -104,7 +104,7 @@ github.com/go-git/go-git/v5 v5.19.1
 github.com/go-git/go-billy/v5 v5.9.0
 github.com/cloudflare/circl v1.6.3
 golang.org/x/crypto v0.52.0
-golang.org/x/net v0.55.0
+golang.org/x/net v0.62.0
 golang.org/x/sys v0.45.0
 EOF
 
