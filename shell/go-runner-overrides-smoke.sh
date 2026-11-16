@@ -120,7 +120,7 @@ exit 0
 EOF
 
 cat > "$tmp_dir/Dockerfile" <<'EOF'
-FROM alpine:3.21
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 COPY fake-bin/go /opt/custom/go
 COPY fake-bin/gofmt /opt/custom/gofmt
 RUN chmod +x /opt/custom/go /opt/custom/gofmt
